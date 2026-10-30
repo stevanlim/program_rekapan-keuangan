@@ -1,0 +1,31 @@
+===================================================================
+         PANDUAN CARA MENJALANKAN PROGRAM REKAPAN KEUANGAN
+===================================================================
+
+A. CARA MENJALANKAN PROGRAM (ALL-IN-ONE):
+   1. Cukup klik ganda (double-click) file:
+      👉 JALANKAN_PROGRAM.exe
+
+   2. Jendela Pusat Kontrol (UI Modern) akan terbuka:
+      - Menjalankan server aplikasi (Vite / Node).
+      - Menjalankan terowongan online Ngrok secara otomatis.
+      - Menampilkan status lampu hijau saat server & link siap.
+
+   3. Pilihan Tombol Akses di Jendela:
+      - [👤 Buka Portal Admin (Lokal)] : 
+        Membuka website rekapan untuk staf di komputer kantor ini.
+      - [👑 Buka Web Boss] : 
+        Membuka website untuk tampilan Boss.
+      - [📋 Salin Link WhatsApp] : 
+        Menyalin link online publik ke clipboard, siap di-Paste (Ctrl+V) 
+        ke WhatsApp Boss agar Boss bisa akses langsung dari HP atau luar kantor.
+
+B. CARA MENUTUP / MEMATIKAN PROGRAM (QUIT):
+   - Cukup klik tombol merah di dalam jendela:
+     👉 [🛑 HENTIKAN SERVER & KELUAR (QUIT)]
+   - ATAU cukup klik tombol Silang (X) di kanan atas jendela.
+   - Seluruh server dan terowongan Ngrok otomatis dimatikan secara bersih.
+
+===================================================================
+                       OS HUTANG FINANCE 2026
+===================================================================
