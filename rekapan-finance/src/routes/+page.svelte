@@ -46,6 +46,7 @@
 
 	// Search di tab Menunggu ACC
 	let pendingSearch = $state("");
+	let paidSearch = $state("");
 
 	// Form Saldo Harian
 	let balanceDate = $state(new Date().toISOString().split("T")[0]);
@@ -562,17 +563,22 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 
 	let filteredPaidDebts = $derived(
 		paidTimeFiltered.filter((d: any) => {
-			if (search.trim()) {
-				const q = search.toLowerCase();
+			if (paidSearch.trim()) {
+				const q = paidSearch.toLowerCase();
 				return (
-					d.contact_name.toLowerCase().includes(q) ||
-					d.description.toLowerCase().includes(q) ||
+					(d.contact_name || "").toLowerCase().includes(q) ||
+					(d.description || "").toLowerCase().includes(q) ||
 					(d.invoice_no || "").toLowerCase().includes(q)
 				);
 			}
 			return true;
 		})
 	);
+
+	let summaryFilteredPaid = $derived.by(() => {
+		const total = filteredPaidDebts.reduce((sum: number, d: any) => sum + (d.paid_amount || d.amount || 0), 0);
+		return { count: filteredPaidDebts.length, total };
+	});
 
 	// ---- 4. Menu Saldo Harian (Khusus PT Aktif dari Navbar) ----
 	let sourceAllDailyBalances = $derived<any[]>(
@@ -2118,17 +2124,84 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					</form>
 				</div>
 
+				<!-- Toolbar & Bar Pencarian Supplier / Pihak Sudah Dibayar -->
+				<div
+					style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; gap:1rem; flex-wrap:wrap;"
+				>
+					<div style="display:flex; align-items:center; gap:0.75rem; flex:1; min-width:280px; max-width:550px;">
+						<div style="position:relative; width:100%;">
+							<span
+								style="position:absolute; left:0.85rem; top:50%; transform:translateY(-50%); color:#64748b; font-size:1rem; pointer-events:none;"
+							>🔍</span>
+							<input
+								class="search-input"
+								type="text"
+								placeholder="Cari nama supplier / pihak yang sudah dibayar..."
+								bind:value={paidSearch}
+								style="width:100%; padding-left:2.5rem; padding-right:{paidSearch ? '2.5rem' : '1rem'}; height:42px; border-radius:10px; border:1.5px solid #cbd5e1; font-size:0.88rem; box-shadow:0 1px 3px rgba(0,0,0,0.04); background:#ffffff;"
+							/>
+							{#if paidSearch}
+								<button
+									type="button"
+									onclick={() => (paidSearch = "")}
+									title="Hapus pencarian"
+									style="position:absolute; right:0.75rem; top:50%; transform:translateY(-50%); background:#e2e8f0; border:none; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:0.75rem; color:#475569; cursor:pointer;"
+								>
+									✕
+								</button>
+							{/if}
+						</div>
+					</div>
+
+					<div style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; color:#475569;">
+						{#if paidSearch.trim()}
+							<span style="background:#e0f2fe; color:#0369a1; padding:0.35rem 0.85rem; border-radius:8px; font-weight:700; border:1px solid #bae6fd; display:flex; align-items:center; gap:0.35rem;">
+								<span>🔍</span> Ditemukan: {filteredPaidDebts.length} transaksi ({rp(summaryFilteredPaid.total)})
+							</span>
+							<button
+								type="button"
+								onclick={() => (paidSearch = "")}
+								style="background:#f1f5f9; border:1px solid #cbd5e1; border-radius:6px; color:#ef4444; font-size:0.78rem; font-weight:700; padding:0.3rem 0.6rem; cursor:pointer;"
+							>
+								Reset Pencarian
+							</button>
+						{:else}
+							<span style="color:#64748b; font-size:0.82rem; font-weight:500;">
+								Total transaksi lunas: <strong>{filteredPaidDebts.length} transaksi</strong>
+							</span>
+						{/if}
+					</div>
+				</div>
+
 				<div class="table-card">
 					{#if filteredPaidDebts.length === 0}
 						<div class="empty-state">
-							<div class="empty-icon">✅</div>
-							<div class="empty-title">
-								Belum ada tagihan yang lunas
-							</div>
-							<div class="empty-desc">
-								Setelah tagihan dibayar lunas, akan otomatis
-								tercatat dan terjumlah di sini
-							</div>
+							{#if paidSearch.trim()}
+								<div class="empty-icon">🔍</div>
+								<div class="empty-title">
+									Tidak ada supplier/transaksi yang cocok dengan "{paidSearch}"
+								</div>
+								<div class="empty-desc">
+									Periksa kembali ejaan nama supplier atau pihak yang Anda cari di daftar lunas.
+								</div>
+								<button
+									type="button"
+									class="btn-secondary"
+									style="margin-top:0.75rem; background:#f1f5f9; border:1px solid #cbd5e1; padding:0.4rem 0.9rem; border-radius:8px; font-weight:600; cursor:pointer;"
+									onclick={() => (paidSearch = "")}
+								>
+									Reset Pencarian
+								</button>
+							{:else}
+								<div class="empty-icon">✅</div>
+								<div class="empty-title">
+									Belum ada tagihan yang lunas
+								</div>
+								<div class="empty-desc">
+									Setelah tagihan dibayar lunas, akan otomatis
+									tercatat dan terjumlah di sini
+								</div>
+							{/if}
 						</div>
 					{:else}
 						<table class="data-table">

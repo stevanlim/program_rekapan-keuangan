@@ -167,16 +167,18 @@ export async function registerUser(params: RegisterParams) {
 
 	const db = await getDb();
 
-	// Proteksi Keamanan: Batasi hanya 1 akun per role (1 Admin & 1 Boss)
-	const [existingRoleUser]: any = await db.query(
-		'SELECT id, username, name FROM users WHERE role = ? LIMIT 1',
+	// Proteksi Keamanan: Batasi 1 Admin & Maksimal 2 Boss
+	const maxAllowed = role === 'boss' ? 2 : 1;
+	const [existingRoleUsers]: any = await db.query(
+		'SELECT id, username, name FROM users WHERE role = ?',
 		[role]
 	);
-	if (existingRoleUser.length > 0) {
-		const roleLabel = role === 'boss' ? 'Boss / Atasan' : 'Admin Keuangan';
+	if (existingRoleUsers.length >= maxAllowed) {
+		const roleLabel = role === 'boss' ? 'Boss / Atasan (Maksimal 2 akun)' : 'Admin Keuangan (Maksimal 1 akun)';
+		const registeredNames = existingRoleUsers.map((u: any) => `${u.name} (${u.username})`).join(', ');
 		return {
 			success: false,
-			error: `Akun untuk peran ${roleLabel} sudah terdaftar (${existingRoleUser[0].username}). Tidak dapat membuat akun ${roleLabel} baru demi keamanan sistem.`
+			error: `Kuota akun untuk ${roleLabel} sudah penuh [${registeredNames}]. Tidak dapat membuat akun baru lagi demi keamanan sistem.`
 		};
 	}
 
@@ -206,23 +208,30 @@ export async function registerUser(params: RegisterParams) {
 }
 
 /**
- * Cek ketersediaan peran (apakah admin atau boss sudah terdaftar)
+ * Cek ketersediaan peran (apakah admin atau boss masih memiliki kuota pendaftaran)
  */
 export async function getRoleAvailability() {
 	const db = await getDb();
 	const [rows]: any = await db.query('SELECT role, COUNT(*) as cnt FROM users GROUP BY role');
 
-	let hasAdmin = false;
-	let hasBoss = false;
+	let adminCount = 0;
+	let bossCount = 0;
 	for (const r of rows) {
-		if (r.role === 'admin' && Number(r.cnt) > 0) hasAdmin = true;
-		if (r.role === 'boss' && Number(r.cnt) > 0) hasBoss = true;
+		if (r.role === 'admin') adminCount = Number(r.cnt);
+		if (r.role === 'boss') bossCount = Number(r.cnt);
 	}
 
+	const adminAvailable = adminCount < 1;
+	const bossAvailable = bossCount < 2; // Maksimal 2 akun Boss
+
 	return {
-		adminAvailable: !hasAdmin,
-		bossAvailable: !hasBoss,
-		allFull: hasAdmin && hasBoss
+		adminAvailable,
+		bossAvailable,
+		adminCount,
+		bossCount,
+		maxAdmin: 1,
+		maxBoss: 2,
+		allFull: !adminAvailable && !bossAvailable
 	};
 }
 

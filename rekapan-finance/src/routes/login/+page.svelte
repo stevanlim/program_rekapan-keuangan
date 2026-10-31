@@ -10,18 +10,26 @@
 			adminAvailable: boolean;
 			bossAvailable: boolean;
 			allFull: boolean;
+			adminCount?: number;
+			bossCount?: number;
+			maxAdmin?: number;
+			maxBoss?: number;
 		};
 	}>();
 
-	// Status ketersediaan akun Admin & Boss (Maksimal 1 Admin & 1 Boss)
+	// Status ketersediaan akun Admin & Boss (Maksimal 1 Admin & 2 Boss)
 	let customRolesStatus = $state<{
 		adminAvailable: boolean;
 		bossAvailable: boolean;
 		allFull: boolean;
+		adminCount?: number;
+		bossCount?: number;
+		maxAdmin?: number;
+		maxBoss?: number;
 	} | null>(null);
 
 	let rolesStatus = $derived(
-		customRolesStatus || data?.rolesStatus || { adminAvailable: true, bossAvailable: true, allFull: false }
+		customRolesStatus || data?.rolesStatus || { adminAvailable: true, bossAvailable: true, allFull: false, adminCount: 0, bossCount: 0, maxAdmin: 1, maxBoss: 2 }
 	);
 
 	// Mode: Login atau Register
@@ -192,7 +200,7 @@
 			return;
 		}
 		if (regRole === "boss" && !rolesStatus.bossAvailable) {
-			triggerShake("Akun Boss / Atasan sudah terdaftar! Demi keamanan sistem, tidak bisa membuat akun Boss lagi.");
+			triggerShake("Kuota akun Boss / Atasan sudah penuh (maksimal 2 akun)! Demi keamanan sistem, tidak bisa membuat akun Boss lagi.");
 			return;
 		}
 
@@ -464,7 +472,7 @@
 						<div class="card-header">
 							<h1 class="card-title">Registrasi Akun Baru ✨</h1>
 							<p class="card-desc">
-								Pilih peran yang masih tersedia (maksimal 1 Admin &amp; 1 Boss)
+								Pilih peran yang masih tersedia (maksimal 1 Admin &amp; 2 Boss)
 							</p>
 						</div>
 
@@ -509,7 +517,7 @@
 										class:disabled-role={!rolesStatus.bossAvailable}
 										onclick={() => {
 											if (!rolesStatus.bossAvailable) {
-												triggerShake("Akun Boss sudah terdaftar dan tidak dapat dibuat lagi demi keamanan.");
+												triggerShake("Kuota akun Boss sudah penuh (maksimal 2 akun).");
 											} else {
 												regRole = "boss";
 											}
@@ -519,11 +527,21 @@
 										<div class="role-text">
 											<div class="role-title">Boss / Atasan</div>
 											<div class="role-sub">
-												{rolesStatus.bossAvailable ? "Persetujuan ACC & audit" : "Akun sudah terdaftar"}
+												{#if rolesStatus.bossAvailable}
+													{#if (rolesStatus.bossCount ?? 0) > 0}
+														Persetujuan ACC (Sisa 1 slot dari 2 Boss)
+													{:else}
+														Persetujuan ACC & audit (Maks. 2 akun)
+													{/if}
+												{:else}
+													Kuota 2 akun sudah penuh
+												{/if}
 											</div>
 										</div>
 										{#if !rolesStatus.bossAvailable}
-											<span class="role-badge-locked">🔒 Terisi</span>
+											<span class="role-badge-locked">🔒 Penuh (2/2)</span>
+										{:else if (rolesStatus.bossCount ?? 0) > 0}
+											<span class="role-badge-quota">1/2 Terisi</span>
 										{:else if regRole === "boss"}
 											<span class="role-badge-check">✓</span>
 										{/if}
@@ -1286,6 +1304,21 @@
 		font-size: 0.6rem;
 		font-weight: 800;
 		padding: 0.1rem 0.35rem;
+		border-radius: 999px;
+		display: flex;
+		align-items: center;
+		gap: 0.15rem;
+	}
+
+	.role-badge-quota {
+		position: absolute;
+		top: 6px;
+		right: 6px;
+		background: #f59e0b;
+		color: white;
+		font-size: 0.6rem;
+		font-weight: 800;
+		padding: 0.1rem 0.4rem;
 		border-radius: 999px;
 		display: flex;
 		align-items: center;

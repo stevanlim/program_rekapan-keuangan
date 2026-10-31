@@ -7,7 +7,7 @@ export const GET: RequestHandler = async () => {
 		const status = await getRoleAvailability();
 		return json(status);
 	} catch (err: any) {
-		return json({ adminAvailable: true, bossAvailable: true, allFull: false });
+		return json({ adminAvailable: true, bossAvailable: true, allFull: false, adminCount: 0, bossCount: 0, maxAdmin: 1, maxBoss: 2 });
 	}
 };
 
