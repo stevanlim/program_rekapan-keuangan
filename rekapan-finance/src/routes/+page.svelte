@@ -61,6 +61,35 @@
 	let pendingSearch = $state("");
 	let paidSearch = $state("");
 
+	// State urutan (Sort A-Z / Z-A / Tanggal)
+	let debtSortBy = $state<"date_desc" | "date_asc" | "name_asc" | "name_desc">("date_desc");
+	let paidSortBy = $state<"date_desc" | "date_asc" | "name_asc" | "name_desc">("date_desc");
+	let pendingSortBy = $state<"date_desc" | "date_asc" | "name_asc" | "name_desc">("date_desc");
+
+	function sortDebtItems(list: any[], sortMode: "date_desc" | "date_asc" | "name_asc" | "name_desc") {
+		return [...list].sort((a, b) => {
+			if (sortMode === "name_asc") {
+				const cmp = (a.contact_name || "").localeCompare(b.contact_name || "", "id", { sensitivity: "base" });
+				if (cmp !== 0) return cmp;
+				return (b.invoice_date || "").localeCompare(a.invoice_date || "");
+			}
+			if (sortMode === "name_desc") {
+				const cmp = (b.contact_name || "").localeCompare(a.contact_name || "", "id", { sensitivity: "base" });
+				if (cmp !== 0) return cmp;
+				return (b.invoice_date || "").localeCompare(a.invoice_date || "");
+			}
+			if (sortMode === "date_asc") {
+				const cmp = (a.invoice_date || "").localeCompare(b.invoice_date || "");
+				if (cmp !== 0) return cmp;
+				return (a.id || 0) - (b.id || 0);
+			}
+			// default: date_desc (Tanggal Terbaru)
+			const cmp = (b.invoice_date || "").localeCompare(a.invoice_date || "");
+			if (cmp !== 0) return cmp;
+			return (b.id || 0) - (a.id || 0);
+		});
+	}
+
 	// Form Saldo Harian
 	let balanceDate = $state(new Date().toISOString().split("T")[0]);
 	let balanceAmount = $state("");
@@ -437,18 +466,21 @@
 	);
 
 	let filteredDebts = $derived(
-		debtsTimeFiltered.filter((d: Debt) => {
-			if (agingFilter !== "all" && d.aging_bucket !== agingFilter) return false;
-			if (search.trim()) {
-				const q = search.toLowerCase();
-				return (
-					d.contact_name.toLowerCase().includes(q) ||
+		sortDebtItems(
+			debtsTimeFiltered.filter((d: Debt) => {
+				if (agingFilter !== "all" && d.aging_bucket !== agingFilter) return false;
+				if (search.trim()) {
+					const q = search.toLowerCase();
+					return (
+						d.contact_name.toLowerCase().includes(q) ||
 					d.description.toLowerCase().includes(q) ||
-					(d.invoice_no || "").toLowerCase().includes(q)
-				);
-			}
-			return true;
-		}) || [],
+						(d.invoice_no || "").toLowerCase().includes(q)
+					);
+				}
+				return true;
+			}) || [],
+			debtSortBy
+		)
 	);
 
 	let summaryDebtsCurrent = $derived.by(() => {
@@ -489,18 +521,21 @@
 	});
 
 	let filteredPendingDebts = $derived(
-		pendingTimeFiltered.filter((d: Debt) => {
-			if (pendingSearch.trim()) {
-				const q = pendingSearch.toLowerCase();
-				return (
-					d.contact_name.toLowerCase().includes(q) ||
-					d.description.toLowerCase().includes(q) ||
-					(d.invoice_no || "").toLowerCase().includes(q) ||
-					(d.pending_by || "").toLowerCase().includes(q)
-				);
-			}
-			return true;
-		})
+		sortDebtItems(
+			pendingTimeFiltered.filter((d: Debt) => {
+				if (pendingSearch.trim()) {
+					const q = pendingSearch.toLowerCase();
+					return (
+						d.contact_name.toLowerCase().includes(q) ||
+						d.description.toLowerCase().includes(q) ||
+						(d.invoice_no || "").toLowerCase().includes(q) ||
+						(d.pending_by || "").toLowerCase().includes(q)
+					);
+				}
+				return true;
+			}),
+			pendingSortBy
+		)
 	);
 
 	// Helper Persetujuan & WhatsApp Reminder ke Atasan (Pak Denny)
@@ -594,17 +629,20 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 	});
 
 	let filteredPaidDebts = $derived(
-		paidTimeFiltered.filter((d: any) => {
-			if (paidSearch.trim()) {
-				const q = paidSearch.toLowerCase();
-				return (
-					(d.contact_name || "").toLowerCase().includes(q) ||
-					(d.description || "").toLowerCase().includes(q) ||
-					(d.invoice_no || "").toLowerCase().includes(q)
-				);
-			}
-			return true;
-		})
+		sortDebtItems(
+			paidTimeFiltered.filter((d: any) => {
+				if (paidSearch.trim()) {
+					const q = paidSearch.toLowerCase();
+					return (
+						(d.contact_name || "").toLowerCase().includes(q) ||
+						(d.description || "").toLowerCase().includes(q) ||
+						(d.invoice_no || "").toLowerCase().includes(q)
+					);
+				}
+				return true;
+			}),
+			paidSortBy
+		)
 	);
 
 	let summaryFilteredPaid = $derived.by(() => {
@@ -1537,6 +1575,17 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							</a>
 						</div>
 
+						<select
+							class="sort-select"
+							bind:value={debtSortBy}
+							title="Urutkan berdasarkan nama supplier (A-Z / Z-A) atau tanggal"
+						>
+							<option value="date_desc">📅 Tgl: Terbaru</option>
+							<option value="date_asc">📅 Tgl: Terlama</option>
+							<option value="name_asc">🔤 Supplier: A - Z</option>
+							<option value="name_desc">🔤 Supplier: Z - A</option>
+						</select>
+
 						<input
 							class="search-input"
 							type="text"
@@ -1563,8 +1612,26 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						<table class="data-table">
 							<thead>
 								<tr>
-									<th>Supplier / Pihak</th>
-									<th>Tgl Bon</th>
+									<th
+										class="sortable-th"
+										onclick={() => (debtSortBy = debtSortBy === "name_asc" ? "name_desc" : "name_asc")}
+										title="Klik untuk urutkan nama Supplier A-Z atau Z-A"
+									>
+										Supplier / Pihak
+										<span class="sort-badge">
+											{debtSortBy === "name_asc" ? "↑ A-Z" : debtSortBy === "name_desc" ? "↓ Z-A" : "↕"}
+										</span>
+									</th>
+									<th
+										class="sortable-th"
+										onclick={() => (debtSortBy = debtSortBy === "date_desc" ? "date_asc" : "date_desc")}
+										title="Klik untuk urutkan Tanggal Bon Terbaru atau Terlama"
+									>
+										Tgl Bon
+										<span class="sort-badge">
+											{debtSortBy === "date_desc" ? "↓ Baru" : debtSortBy === "date_asc" ? "↑ Lama" : "↕"}
+										</span>
+									</th>
 									<th>Jatuh Tempo</th>
 									<th>Status Waktu</th>
 									<th>Aging</th>
@@ -1755,6 +1822,24 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					</div>
 
 					<div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+						<!-- Tombol Export Excel & PDF Menunggu ACC -->
+						<div class="export-btn-group">
+							<a
+								href="/api/export/menunggu-acc?pt={data.currentCompany?.code || 'ART'}&type=excel"
+								class="btn-export-excel"
+								title="Download Excel Daftar Pengajuan Menunggu ACC untuk dikirim ke WA Bos"
+							>
+								<span>📥</span> Export Excel
+							</a>
+							<a
+								href="/api/export/menunggu-acc?pt={data.currentCompany?.code || 'ART'}&type=pdf"
+								class="btn-export-pdf"
+								title="Download Laporan PDF Daftar Pengajuan Menunggu ACC untuk dikirim ke WA Bos"
+							>
+								<span>📄</span> Export PDF
+							</a>
+						</div>
+
 						<button
 							type="button"
 							style="background:#25d366; color:#ffffff; font-size:0.82rem; font-weight:700; padding:0.55rem 1rem; border-radius:10px; border:none; cursor:pointer; display:flex; align-items:center; gap:0.4rem; box-shadow:0 2px 8px rgba(37,211,102,0.3); transition:transform 0.15s ease;"
@@ -1769,13 +1854,25 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 
 				<!-- Bar Pencarian & Info Petunjuk -->
 				<div class="debt-toolbar" style="margin-bottom:1rem;">
-					<div class="search-box">
-						<span class="search-icon">🔍</span>
-						<input
-							type="text"
-							placeholder="Cari nama supplier, no bon, keterangan, atau pengaju..."
-							bind:value={pendingSearch}
-						/>
+					<div style="display:flex; align-items:center; gap:0.65rem; flex:1; flex-wrap:wrap;">
+						<div class="search-box" style="flex:1; min-width:240px;">
+							<span class="search-icon">🔍</span>
+							<input
+								type="text"
+								placeholder="Cari nama supplier, no bon, keterangan, atau pengaju..."
+								bind:value={pendingSearch}
+							/>
+						</div>
+						<select
+							class="sort-select"
+							bind:value={pendingSortBy}
+							title="Urutkan daftar antrean ACC"
+						>
+							<option value="date_desc">📅 Tgl: Terbaru</option>
+							<option value="date_asc">📅 Tgl: Terlama</option>
+							<option value="name_asc">🔤 Supplier: A - Z</option>
+							<option value="name_desc">🔤 Supplier: Z - A</option>
+						</select>
 					</div>
 
 					<div style="font-size:0.8rem; color:#64748b; display:flex; align-items:center; gap:0.4rem;">
@@ -2168,7 +2265,7 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 				<div
 					style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; gap:1rem; flex-wrap:wrap;"
 				>
-					<div style="display:flex; align-items:center; gap:0.75rem; flex:1; min-width:280px; max-width:550px;">
+					<div style="display:flex; align-items:center; gap:0.75rem; flex:1; min-width:280px; max-width:720px;">
 						<div style="position:relative; width:100%;">
 							<span
 								style="position:absolute; left:0.85rem; top:50%; transform:translateY(-50%); color:#64748b; font-size:1rem; pointer-events:none;"
@@ -2191,6 +2288,17 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 								</button>
 							{/if}
 						</div>
+						<select
+							class="sort-select"
+							bind:value={paidSortBy}
+							title="Urutkan berdasarkan nama supplier (A-Z / Z-A) atau tanggal"
+							style="height:42px; flex-shrink:0;"
+						>
+							<option value="date_desc">📅 Tgl: Terbaru</option>
+							<option value="date_asc">📅 Tgl: Terlama</option>
+							<option value="name_asc">🔤 Supplier: A - Z</option>
+							<option value="name_desc">🔤 Supplier: Z - A</option>
+						</select>
 					</div>
 
 					<div style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; color:#475569;">
@@ -2247,9 +2355,27 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						<table class="data-table">
 							<thead>
 								<tr>
-									<th>Supplier / Pihak</th>
+									<th
+										class="sortable-th"
+										onclick={() => (paidSortBy = paidSortBy === "name_asc" ? "name_desc" : "name_asc")}
+										title="Klik untuk urutkan nama Supplier A-Z atau Z-A"
+									>
+										Supplier / Pihak
+										<span class="sort-badge">
+											{paidSortBy === "name_asc" ? "↑ A-Z" : paidSortBy === "name_desc" ? "↓ Z-A" : "↕"}
+										</span>
+									</th>
 									<th>No Invoice</th>
-									<th>Tgl Bon</th>
+									<th
+										class="sortable-th"
+										onclick={() => (paidSortBy = paidSortBy === "date_desc" ? "date_asc" : "date_desc")}
+										title="Klik untuk urutkan Tanggal Bon Terbaru atau Terlama"
+									>
+										Tgl Bon
+										<span class="sort-badge">
+											{paidSortBy === "date_desc" ? "↓ Baru" : paidSortBy === "date_asc" ? "↑ Lama" : "↕"}
+										</span>
+									</th>
 									<th style="text-align:right"
 										>Total Tagihan</th
 									>
@@ -3814,6 +3940,60 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 		color: #16a34a !important;
 	}
 	/* Tombol Detail Bon */
+	/* Sort Select & Sortable Table Header */
+	.sort-select {
+		padding: 0.45rem 0.75rem;
+		border: 1.5px solid #cbd5e1;
+		border-radius: 8px;
+		font-size: 0.84rem;
+		font-weight: 600;
+		color: #1e293b;
+		background: #ffffff;
+		cursor: pointer;
+		outline: none;
+		transition: all 0.15s;
+	}
+	.sort-select:hover {
+		border-color: #94a3b8;
+	}
+	.sort-select:focus {
+		border-color: #2563eb;
+		box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+	}
+	:global([data-theme="dark"]) .sort-select {
+		background: #1e293b;
+		color: #f1f5f9;
+		border-color: #334155;
+	}
+	.sortable-th {
+		cursor: pointer;
+		user-select: none;
+		transition: background 0.15s, color 0.15s;
+	}
+	.sortable-th:hover {
+		background: #e2e8f0 !important;
+		color: #0f172a !important;
+	}
+	:global([data-theme="dark"]) .sortable-th:hover {
+		background: #334155 !important;
+		color: #ffffff !important;
+	}
+	.sort-badge {
+		display: inline-block;
+		font-size: 0.68rem;
+		font-weight: 700;
+		background: #e2e8f0;
+		color: #334155;
+		padding: 0.1rem 0.35rem;
+		border-radius: 4px;
+		margin-left: 0.25rem;
+		vertical-align: middle;
+	}
+	:global([data-theme="dark"]) .sort-badge {
+		background: #334155;
+		color: #cbd5e1;
+	}
+
 	/* Tombol Edit Tagihan */
 	.btn-edit {
 		background: #eff6ff;
