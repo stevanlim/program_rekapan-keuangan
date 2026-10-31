@@ -25,7 +25,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	// Ambil semua hutang aktif yang belum lunas
 	const [debts]: any = await db.query(`
 		SELECT 
-			d.id, d.contact_id, c.name AS contact_name, c.type AS contact_type,
+			d.id, d.contact_id, c.name AS contact_name, COALESCE(d.contact_type, c.type) AS contact_type,
 			d.invoice_no,
 			DATE_FORMAT(d.invoice_date, '%Y-%m-%d') AS invoice_date,
 			DATE_FORMAT(COALESCE(d.due_date, DATE_ADD(d.invoice_date, INTERVAL 30 DAY)), '%Y-%m-%d') AS due_date,

@@ -152,6 +152,7 @@ async function initTables(p: mysql.Pool) {
 	await addColIfMissing('approved_by', 'VARCHAR(100) NULL DEFAULT NULL');
 	await addColIfMissing('approved_at', 'DATETIME NULL DEFAULT NULL');
 	await addColIfMissing('rejected_notes', 'TEXT NULL DEFAULT NULL');
+	await addColIfMissing('contact_type', "ENUM('supplier','non_vendor') NULL DEFAULT NULL");
 }
 
 async function seedMasterData(p: mysql.Pool) {

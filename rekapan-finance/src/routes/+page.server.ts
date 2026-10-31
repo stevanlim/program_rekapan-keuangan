@@ -28,7 +28,7 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 		SELECT
 			d.id, d.company_id, d.contact_id,
 			comp.code AS company_code, comp.name AS company_name,
-			c.name AS contact_name, c.type AS contact_type,
+			c.name AS contact_name, COALESCE(d.contact_type, c.type) AS contact_type,
 			d.invoice_no,
 			DATE_FORMAT(d.invoice_date,'%Y-%m-%d') AS invoice_date,
 			DATE_FORMAT(d.due_date,'%Y-%m-%d') AS due_date,
@@ -58,7 +58,7 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 		SELECT
 			d.id, d.company_id, d.contact_id,
 			comp.code AS company_code, comp.name AS company_name,
-			c.name AS contact_name, c.type AS contact_type,
+			c.name AS contact_name, COALESCE(d.contact_type, c.type) AS contact_type,
 			d.invoice_no,
 			DATE_FORMAT(d.invoice_date,'%Y-%m-%d') AS invoice_date,
 			DATE_FORMAT(d.due_date,'%Y-%m-%d') AS due_date,
@@ -88,7 +88,7 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 		SELECT
 			d.id, d.company_id, d.contact_id,
 			comp.code AS company_code, comp.name AS company_name,
-			c.name AS contact_name, c.type AS contact_type,
+			c.name AS contact_name, COALESCE(d.contact_type, c.type) AS contact_type,
 			d.invoice_no,
 			DATE_FORMAT(d.invoice_date,'%Y-%m-%d') AS invoice_date,
 			DATE_FORMAT(d.due_date,'%Y-%m-%d') AS due_date,
@@ -317,12 +317,82 @@ export const actions: Actions = {
 			return fail(400, { error: 'Nama supplier/toko wajib dipilih atau diisi' });
 		}
 
+		// Selalu sinkronkan tipe contact di contacts table
+		await db.query('UPDATE contacts SET type = ? WHERE id = ?', [contact_type, contactId]);
+
 		await db.query(
-			`INSERT INTO debts (company_id, contact_id, invoice_no, invoice_date, due_date, amount, description) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			[company_id, contactId, invoice_no, invoice_date, due_date, amount, description]
+			`INSERT INTO debts (company_id, contact_id, contact_type, invoice_no, invoice_date, due_date, amount, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			[company_id, contactId, contact_type, invoice_no, invoice_date, due_date, amount, description]
 		);
 
 		return { success: true };
+	},
+
+	// Update / Edit data tagihan OS Hutang
+	updateDebt: async ({ request }) => {
+		const f = await request.formData();
+		const debt_id = Number(f.get('debt_id'));
+		const company_id = Number(f.get('company_id'));
+		let contact_name = f.get('contact_name')?.toString().trim() || '';
+		const contact_type = (f.get('contact_type')?.toString() || 'supplier') as 'supplier' | 'non_vendor';
+		const invoice_no = f.get('invoice_no')?.toString().trim() || null;
+		const invoice_date = f.get('invoice_date')?.toString().trim() || '';
+		const has_due = f.get('has_due') === 'yes';
+		const due_date = has_due ? (f.get('due_date')?.toString().trim() || null) : null;
+		const amount = parseFloat(f.get('amount')?.toString().replace(/\D/g, '') || '0');
+		const description = f.get('description')?.toString().trim() || '';
+
+		if (!debt_id) return fail(400, { error: 'ID tagihan tidak valid' });
+		if (!contact_name) return fail(400, { error: 'Nama supplier/toko wajib diisi' });
+		if (!invoice_date) return fail(400, { error: 'Tanggal bon wajib diisi' });
+		if (!amount || amount <= 0) return fail(400, { error: 'Jumlah tagihan wajib diisi' });
+		if (!description) return fail(400, { error: 'Keterangan wajib diisi' });
+
+		const db = await getDb();
+		const [debtRows]: any = await db.query('SELECT * FROM debts WHERE id = ?', [debt_id]);
+		if (!debtRows.length) return fail(404, { error: 'Tagihan tidak ditemukan' });
+
+		const currentDebt = debtRows[0];
+		const paidAmount = Number(currentDebt.paid_amount || 0);
+
+		// Tentukan status baru berdasarkan perubahan amount vs paid_amount
+		let newStatus = currentDebt.status;
+		if (newStatus !== 'pending_approval') {
+			if (paidAmount >= amount) {
+				newStatus = 'paid';
+			} else if (paidAmount > 0) {
+				newStatus = 'partially_paid';
+			} else {
+				newStatus = 'unpaid';
+			}
+		}
+
+		// Cari atau buat contact baru jika nama berbeda
+		let contactId: number;
+		const [existing]: any = await db.query('SELECT id FROM contacts WHERE LOWER(name) = LOWER(?)', [contact_name]);
+		if (existing.length > 0) {
+			contactId = existing[0].id;
+			await db.query('UPDATE contacts SET type = ? WHERE id = ?', [contact_type, contactId]);
+		} else {
+			const [res]: any = await db.query('INSERT INTO contacts (name, type) VALUES (?, ?)', [contact_name, contact_type]);
+			contactId = res.insertId;
+		}
+
+		await db.query(
+			`UPDATE debts
+			 SET contact_id = ?,
+			     contact_type = ?,
+			     invoice_no = ?,
+			     invoice_date = ?,
+			     due_date = ?,
+			     amount = ?,
+			     status = ?,
+			     description = ?
+			 WHERE id = ?`,
+			[contactId, contact_type, invoice_no, invoice_date, due_date, amount, newStatus, description, debt_id]
+		);
+
+		return { success: true, updated: true };
 	},
 
 	// 1. Mengajukan pembayaran tagihan ke Atasan untuk di-ACC

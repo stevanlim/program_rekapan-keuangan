@@ -27,6 +27,19 @@
 	let isNewSupplier = $state(false);
 	let selectedContactId = $state("");
 	let addAmountFormatted = $state("");
+	let addContactType = $state<"supplier" | "non_vendor">("supplier");
+
+	// Modal Edit Tagihan
+	let showEdit = $state(false);
+	let editDebtTarget = $state<any>(null);
+	let editContactName = $state("");
+	let editContactType = $state<"supplier" | "non_vendor">("supplier");
+	let editInvoiceNo = $state("");
+	let editInvoiceDate = $state("");
+	let editHasDue = $state(false);
+	let editDueDate = $state("");
+	let editAmountFormatted = $state("");
+	let editDescription = $state("");
 
 	// Modal bayar / minta ACC
 	let showPay = $state(false);
@@ -226,9 +239,28 @@
 		isNewSupplier = false;
 		selectedContactId = "";
 		addAmountFormatted = "";
+		addContactType = "supplier";
 	}
 	function closeAdd() {
 		showAdd = false;
+	}
+
+	function openEdit(d: any) {
+		editDebtTarget = d;
+		editContactName = d.contact_name || "";
+		editContactType = (d.contact_type === "non_vendor" ? "non_vendor" : "supplier");
+		editInvoiceNo = d.invoice_no === "Tanpa Bon" ? "" : (d.invoice_no || "");
+		editInvoiceDate = d.invoice_date || "";
+		editHasDue = !!d.due_date;
+		editDueDate = d.due_date || "";
+		editAmountFormatted = Math.round(d.amount || 0).toLocaleString("id-ID");
+		editDescription = d.description || "";
+		showEdit = true;
+	}
+
+	function closeEdit() {
+		showEdit = false;
+		editDebtTarget = null;
 	}
 
 	function rp(n: number) {
@@ -1645,6 +1677,14 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 												</button>
 												<button
 													type="button"
+													class="btn-edit"
+													onclick={() => openEdit(d)}
+													title="Edit data tagihan / supplier / tipe"
+												>
+													✏️ Edit
+												</button>
+												<button
+													type="button"
 													class="btn-pay"
 													onclick={() => openPay(d)}
 													>Bayar</button
@@ -2724,13 +2764,17 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							<select
 								name="contact_id"
 								bind:value={selectedContactId}
+								onchange={() => {
+									const found = data.contacts?.find((c: any) => String(c.id) === String(selectedContactId));
+									if (found && found.type) addContactType = found.type;
+								}}
 								required
 							>
 								<option value=""
-									>-- Pilih supplier yang pernah diinput --</option
+									>-- Pilih supplier / pihak yang pernah diinput --</option
 								>
 								{#each data.contacts || [] as c}
-									<option value={c.id}>{c.name}</option>
+									<option value={c.id}>{c.name} ({c.type === 'non_vendor' ? 'Non-Vendor' : 'Supplier'})</option>
 								{/each}
 							</select>
 							{#if selectedObj}
@@ -2750,30 +2794,32 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							<input
 								type="text"
 								name="contact_name"
-								placeholder="Ketik nama toko / supplier baru..."
+								placeholder="Ketik nama toko / supplier / pihak baru (misal: Kas Negara)..."
 								required
 							/>
-							<div
-								class="radio-group"
-								style="margin-top:0.25rem;"
-							>
-								<label>
-									<input
-										type="radio"
-										name="contact_type"
-										value="supplier"
-										checked
-									/> Supplier / Toko / Bengkel
-								</label>
-								<label>
-									<input
-										type="radio"
-										name="contact_type"
-										value="non_vendor"
-									/> Non-Vendor (Pajak / BPJS / Kasbon)
-								</label>
-							</div>
 						{/if}
+
+						<div
+							class="radio-group"
+							style="margin-top:0.45rem;"
+						>
+							<label style="cursor:pointer; display:flex; align-items:center; gap:0.35rem;">
+								<input
+									type="radio"
+									name="contact_type"
+									value="supplier"
+									bind:group={addContactType}
+								/> 🏬 Supplier / Toko / Bengkel
+							</label>
+							<label style="cursor:pointer; display:flex; align-items:center; gap:0.35rem;">
+								<input
+									type="radio"
+									name="contact_type"
+									value="non_vendor"
+									bind:group={addContactType}
+								/> 🏢 Non-Vendor (Kas Negara / Pajak / BPJS / Kasbon / dsb)
+							</label>
+						</div>
 					</div>
 
 					<!-- No Invoice & Tanggal Bon -->
@@ -2864,6 +2910,173 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					<button type="submit" class="btn-primary"
 						>Simpan Tagihan</button
 					>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
+
+<!-- ============ MODAL: EDIT DATA TAGIHAN ============ -->
+{#if showEdit && editDebtTarget}
+	<div class="modal-overlay" role="dialog" aria-modal="true">
+		<div class="modal">
+			<div class="modal-head">
+				<h2>✏️ Edit Data Tagihan / Supplier</h2>
+				<button class="btn-close" onclick={closeEdit}>✕</button>
+			</div>
+			<form
+				method="POST"
+				action="?pt={data.currentCompany?.code || 'ART'}&/updateDebt"
+				use:enhance={() => {
+					return async ({ result, update }) => {
+						if (result.type === "success") {
+							closeEdit();
+							notify(
+								"success",
+								"Data Tagihan Berhasil Diperbarui! ✅",
+								"Perubahan supplier dan data tagihan telah disimpan.",
+							);
+							if (soundEnabled) sound.playAman();
+						}
+						await update();
+					};
+				}}
+			>
+				<input type="hidden" name="debt_id" value={editDebtTarget.id} />
+				<input type="hidden" name="company_id" value={editDebtTarget.company_id || data.currentCompany?.id} />
+
+				<div class="modal-body">
+					<!-- Nama Toko / Supplier / Pihak -->
+					<div class="field">
+						<label for="edit-contact-name">Nama Supplier / Toko / Pihak <span style="color:#ef4444;">*</span></label>
+						<input
+							id="edit-contact-name"
+							type="text"
+							name="contact_name"
+							list="edit-contact-suggestions"
+							bind:value={editContactName}
+							placeholder="Misal: Kas Negara / PT Maju Jaya"
+							required
+						/>
+						<datalist id="edit-contact-suggestions">
+							{#each data.contacts || [] as c}
+								<option value={c.name}></option>
+							{/each}
+						</datalist>
+
+						<!-- Pilihan Tipe: Supplier vs Non-Vendor -->
+						<div class="radio-group" style="margin-top:0.45rem;">
+							<label style="cursor:pointer; display:flex; align-items:center; gap:0.35rem;">
+								<input
+									type="radio"
+									name="contact_type"
+									value="supplier"
+									bind:group={editContactType}
+								/> 🏬 Supplier / Toko / Bengkel
+							</label>
+							<label style="cursor:pointer; display:flex; align-items:center; gap:0.35rem;">
+								<input
+									type="radio"
+									name="contact_type"
+									value="non_vendor"
+									bind:group={editContactType}
+								/> 🏢 Non-Vendor (Kas Negara / Pajak / BPJS / Kasbon / dsb)
+							</label>
+						</div>
+					</div>
+
+					<!-- No Invoice & Tanggal Bon -->
+					<div class="field-grid">
+						<div class="field">
+							<label for="edit-invoice-no">No Invoice / No Bon <span style="color:#94a3b8">(opsional)</span></label>
+							<input
+								id="edit-invoice-no"
+								type="text"
+								name="invoice_no"
+								placeholder="Misal: INV-2026/001"
+								bind:value={editInvoiceNo}
+							/>
+						</div>
+						<div class="field">
+							<label for="edit-invoice-date">Tanggal Bon / Nota <span style="color:#ef4444;">*</span></label>
+							<input
+								id="edit-invoice-date"
+								type="date"
+								name="invoice_date"
+								bind:value={editInvoiceDate}
+								required
+							/>
+						</div>
+					</div>
+
+					<!-- Jatuh Tempo -->
+					<div class="field">
+						<label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-weight:600;">
+							<input
+								type="checkbox"
+								name="has_due"
+								value="yes"
+								bind:checked={editHasDue}
+							/>
+							Ada tanggal jatuh tempo khusus?
+						</label>
+						{#if editHasDue}
+							<input
+								type="date"
+								name="due_date"
+								bind:value={editDueDate}
+								style="margin-top:0.35rem;"
+								required={editHasDue}
+							/>
+						{:else}
+							<div class="field-hint">
+								Jika tidak diisi, otomatis dihitung 30 hari dari tanggal bon.
+							</div>
+						{/if}
+					</div>
+
+					<!-- Nominal Tagihan -->
+					<div class="field">
+						<label for="edit-amount">Total Tagihan (Rp) <span style="color:#ef4444;">*</span></label>
+						<div class="money-input-wrapper">
+							<span class="money-prefix">Rp</span>
+							<input
+								id="edit-amount"
+								type="text"
+								name="amount"
+								placeholder="0"
+								bind:value={editAmountFormatted}
+								oninput={(e) => {
+									const raw = e.currentTarget.value.replace(/\D/g, "");
+									editAmountFormatted = raw ? Number(raw).toLocaleString("id-ID") : "";
+								}}
+								required
+							/>
+						</div>
+						{#if editDebtTarget.paid_amount > 0}
+							<div class="field-hint" style="color:#0284c7; margin-top:0.25rem;">
+								ℹ️ Sudah pernah dibayar: {rp(editDebtTarget.paid_amount)}. Sisa hutang akan otomatis disesuaikan.
+							</div>
+						{/if}
+					</div>
+
+					<!-- Keterangan -->
+					<div class="field">
+						<label for="edit-description">Keterangan / Keperluan <span style="color:#ef4444;">*</span></label>
+						<input
+							id="edit-description"
+							type="text"
+							name="description"
+							placeholder="Misal: Belanja sparepart / Pajak bulanan"
+							bind:value={editDescription}
+							required
+						/>
+					</div>
+				</div>
+
+				<div class="modal-foot">
+					<button type="button" class="btn-ghost" onclick={closeEdit}>Batal</button>
+					<button type="submit" class="btn-primary">💾 Simpan Perubahan</button>
 				</div>
 			</form>
 		</div>
@@ -3601,6 +3814,36 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 		color: #16a34a !important;
 	}
 	/* Tombol Detail Bon */
+	/* Tombol Edit Tagihan */
+	.btn-edit {
+		background: #eff6ff;
+		color: #1d4ed8;
+		border: 1px solid #bfdbfe;
+		padding: 0.32rem 0.65rem;
+		border-radius: 6px;
+		font-size: 0.78rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.15s;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+	.btn-edit:hover {
+		background: #dbeafe;
+		color: #1e40af;
+		border-color: #93c5fd;
+	}
+	:global([data-theme="dark"]) .btn-edit {
+		background: #1e293b;
+		color: #60a5fa;
+		border-color: #3b82f6;
+	}
+	:global([data-theme="dark"]) .btn-edit:hover {
+		background: #2563eb;
+		color: #ffffff;
+	}
+
 	.btn-detail {
 		background: #f1f5f9;
 		color: #334155;
