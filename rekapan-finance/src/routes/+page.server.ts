@@ -25,6 +25,24 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 	const db = await getDb();
 	const companyCode = url.searchParams.get('pt') || 'ART';
 
+	// Otomatis batalkan pengajuan ACC yang sudah melewati batas waktu kadaluarsa (pending_expires_at) dan kembalikan ke OS Hutang Aktif
+	try {
+		await db.query(`
+			UPDATE debts
+			SET status = CASE WHEN paid_amount > 0 THEN 'partially_paid' ELSE 'unpaid' END,
+			    rejected_notes = CONCAT('Otomatis dibatalkan karena melewati batas waktu tunggu ACC (Kadaluarsa pada ', DATE_FORMAT(pending_expires_at, '%d/%m/%Y %H:%i'), ')'),
+			    pending_amount = NULL,
+			    pending_notes = NULL,
+			    pending_by = NULL,
+			    pending_expires_at = NULL
+			WHERE status = 'pending_approval'
+			  AND pending_expires_at IS NOT NULL
+			  AND pending_expires_at <= NOW()
+		`);
+	} catch (err) {
+		console.warn('[Auto-Expire ACC] Warning:', err);
+	}
+
 	const [companies]: any = await db.query('SELECT id, code, name FROM companies ORDER BY id');
 	const currentCompany = companies.find((c: any) => c.code === companyCode) || companies[0];
 
@@ -45,6 +63,8 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 			d.description, d.status,
 			d.pending_amount,
 			DATE_FORMAT(d.pending_payment_date,'%Y-%m-%d') AS pending_payment_date,
+			DATE_FORMAT(d.pending_expires_at,'%Y-%m-%d %H:%i:%s') AS pending_expires_at,
+			UNIX_TIMESTAMP(d.pending_expires_at) * 1000 AS pending_expires_ts,
 			d.pending_source_fund,
 			d.pending_notes,
 			d.pending_by,
@@ -75,6 +95,8 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 			d.description, d.status,
 			d.pending_amount,
 			DATE_FORMAT(d.pending_payment_date,'%Y-%m-%d') AS pending_payment_date,
+			DATE_FORMAT(d.pending_expires_at,'%Y-%m-%d %H:%i:%s') AS pending_expires_at,
+			UNIX_TIMESTAMP(d.pending_expires_at) * 1000 AS pending_expires_ts,
 			d.pending_source_fund,
 			d.pending_notes,
 			d.pending_by,
@@ -202,6 +224,7 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 			paid_amount: Number(r.paid_amount),
 			remaining_amount: remaining,
 			pending_amount: r.pending_amount ? Number(r.pending_amount) : remaining,
+			pending_expires_ts: r.pending_expires_ts ? Number(r.pending_expires_ts) : null,
 			days_overdue: daysOverdue,
 			days_until_due: daysUntilDue,
 			aging_bucket,
@@ -214,16 +237,28 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 		const daysOverdue = Number(r.days_overdue || 0);
 		const daysUntilDue = Number(r.days_until_due || 0);
 
+		let aging_bucket: '0-30' | '31-60' | '61-90' | '91-120' | '>120';
+		if (daysOverdue <= 30) aging_bucket = '0-30';
+		else if (daysOverdue <= 60) aging_bucket = '31-60';
+		else if (daysOverdue <= 90) aging_bucket = '61-90';
+		else if (daysOverdue <= 120) aging_bucket = '91-120';
+		else aging_bucket = '>120';
+
+		let urgency: 'safe' | 'h5' | 'overdue' = 'safe';
+		if (daysUntilDue < 0) urgency = 'overdue';
+		else if (daysUntilDue <= 5) urgency = 'h5';
+
 		return {
 			...r,
 			amount: Number(r.amount),
 			paid_amount: Number(r.paid_amount),
 			remaining_amount: remaining,
 			pending_amount: r.pending_amount !== null && r.pending_amount !== undefined ? Number(r.pending_amount) : remaining,
+			pending_expires_ts: r.pending_expires_ts ? Number(r.pending_expires_ts) : null,
 			days_overdue: daysOverdue,
 			days_until_due: daysUntilDue,
-			aging_bucket: '0-30' as const,
-			urgency: 'safe' as const
+			aging_bucket,
+			urgency
 		};
 	});
 
@@ -422,13 +457,14 @@ export const actions: Actions = {
 		return { success: true, updated: true };
 	},
 
-	// 1. Mengajukan pembayaran tagihan ke Atasan untuk di-ACC
+	// 1. Mengajukan pembayaran tagihan ke Atasan untuk di-ACC (dengan batas waktu / kadaluarsa ACC)
 	requestApproval: async ({ request, cookies }) => {
 		const sessionId = cookies.get('finance_session');
 		const currentUser = sessionId ? await getSessionUser(sessionId) : null;
 		const f = await request.formData();
 		const debt_id = Number(f.get('debt_id'));
 		const payment_date = f.get('payment_date')?.toString().trim() || getLocalDateStr();
+		const expire_days = parseFloat(f.get('expire_days')?.toString() || '0');
 		const amount_paid = parseFloat(f.get('amount_paid')?.toString().replace(/\D/g, '') || '0');
 		const source_fund = f.get('source_fund')?.toString().trim() || 'Transfer';
 		const notes = f.get('notes')?.toString().trim() || null;
@@ -444,17 +480,34 @@ export const actions: Actions = {
 
 		const requesterName = currentUser?.name || currentUser?.username || 'Petugas Keuangan';
 
-		await db.query(`
-			UPDATE debts
-			SET status = 'pending_approval',
-			    pending_amount = ?,
-			    pending_payment_date = ?,
-			    pending_source_fund = ?,
-			    pending_notes = ?,
-			    pending_by = ?,
-			    rejected_notes = NULL
-			WHERE id = ?
-		`, [amount_paid, payment_date, source_fund, notes, requesterName, debt_id]);
+		if (expire_days > 0) {
+			const expireSeconds = Math.round(expire_days * 86400);
+			await db.query(`
+				UPDATE debts
+				SET status = 'pending_approval',
+				    pending_amount = ?,
+				    pending_payment_date = ?,
+				    pending_expires_at = DATE_ADD(NOW(), INTERVAL ? SECOND),
+				    pending_source_fund = ?,
+				    pending_notes = ?,
+				    pending_by = ?,
+				    rejected_notes = NULL
+				WHERE id = ?
+			`, [amount_paid, payment_date, expireSeconds, source_fund, notes, requesterName, debt_id]);
+		} else {
+			await db.query(`
+				UPDATE debts
+				SET status = 'pending_approval',
+				    pending_amount = ?,
+				    pending_payment_date = ?,
+				    pending_expires_at = NULL,
+				    pending_source_fund = ?,
+				    pending_notes = ?,
+				    pending_by = ?,
+				    rejected_notes = NULL
+				WHERE id = ?
+			`, [amount_paid, payment_date, source_fund, notes, requesterName, debt_id]);
+		}
 
 		return { success: true, requested: true };
 	},
@@ -521,6 +574,7 @@ export const actions: Actions = {
 				     approved_by = ?,
 				     approved_at = NOW(),
 				     pending_amount = NULL,
+				     pending_expires_at = NULL,
 				     pending_notes = NULL,
 				     rejected_notes = NULL
 				 WHERE id = ?`,
@@ -560,6 +614,7 @@ export const actions: Actions = {
 			 SET status = ?,
 			     rejected_notes = ?,
 			     pending_amount = NULL,
+			     pending_expires_at = NULL,
 			     pending_notes = NULL,
 			     pending_by = NULL
 			 WHERE id = ?`,
@@ -586,6 +641,7 @@ export const actions: Actions = {
 			`UPDATE debts
 			 SET status = ?,
 			     pending_amount = NULL,
+			     pending_expires_at = NULL,
 			     pending_notes = NULL,
 			     pending_by = NULL
 			 WHERE id = ?`,
@@ -624,7 +680,7 @@ export const actions: Actions = {
 
 			await conn.query(`INSERT INTO payments (debt_id, company_id, payment_date, amount_paid, source_fund, notes) VALUES (?, ?, ?, ?, ?, ?)`,
 				[debt_id, debt.company_id, payment_date, amount_paid, source_fund, notes]);
-			await conn.query(`UPDATE debts SET paid_amount = ?, status = ?, approved_by = ?, approved_at = NOW() WHERE id = ?`, [newPaid, newStatus, approverName, debt_id]);
+			await conn.query(`UPDATE debts SET paid_amount = ?, status = ?, approved_by = ?, approved_at = NOW(), pending_expires_at = NULL WHERE id = ?`, [newPaid, newStatus, approverName, debt_id]);
 
 			await conn.commit();
 			return { success: true, paid_off: newStatus === 'paid' };

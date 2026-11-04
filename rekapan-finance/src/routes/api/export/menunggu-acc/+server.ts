@@ -11,6 +11,14 @@ function getLocalDateStr(d: Date = new Date()): string {
 	return `${year}-${month}-${day}`;
 }
 
+function getAgingBucket(daysOverdue: number): string {
+	if (daysOverdue <= 30) return '0-30 Hari';
+	if (daysOverdue <= 60) return '31-60 Hari';
+	if (daysOverdue <= 90) return '61-90 Hari';
+	if (daysOverdue <= 120) return '91-120 Hari';
+	return '>120 Hari';
+}
+
 export const GET: RequestHandler = async ({ url }) => {
 	const db = await getDb();
 	const companyCode = url.searchParams.get('pt') || 'ART';
@@ -36,9 +44,11 @@ export const GET: RequestHandler = async ({ url }) => {
 			d.invoice_no,
 			DATE_FORMAT(d.invoice_date, '%Y-%m-%d') AS invoice_date,
 			DATE_FORMAT(COALESCE(d.due_date, DATE_ADD(d.invoice_date, INTERVAL 30 DAY)), '%Y-%m-%d') AS due_date,
+			DATEDIFF(CURRENT_DATE(), d.invoice_date) AS days_overdue,
 			d.amount, d.paid_amount, (d.amount - d.paid_amount) AS remaining_amount,
 			COALESCE(d.pending_amount, (d.amount - d.paid_amount)) AS pending_amount,
 			DATE_FORMAT(COALESCE(d.pending_payment_date, CURRENT_DATE()), '%Y-%m-%d') AS pending_payment_date,
+			DATE_FORMAT(d.pending_expires_at, '%d/%m/%Y %H:%i') AS pending_expires_fmt,
 			d.pending_notes,
 			COALESCE(d.pending_by, 'Admin Keuangan') AS pending_by,
 			d.description
@@ -66,14 +76,15 @@ export const GET: RequestHandler = async ({ url }) => {
 			{ width: 3 },  // A (margin)
 			{ width: 6 },  // B: No
 			{ width: 28 }, // C: Supplier / Pihak
-			{ width: 15 }, // D: Kategori
-			{ width: 16 }, // E: No. Nota / Bon
-			{ width: 15 }, // F: Tgl Nota / Bon
-			{ width: 42 }, // G: Keterangan / Keperluan
-			{ width: 18 }, // H: Total Bon
-			{ width: 20 }, // I: Nominal Diajukan (ACC)
-			{ width: 16 }, // J: Tgl Pengajuan
-			{ width: 28 }  // K: Catatan Pengajuan
+			{ width: 14 }, // D: Kategori
+			{ width: 15 }, // E: No. Nota / Bon
+			{ width: 14 }, // F: Tgl Nota / Bon
+			{ width: 15 }, // G: Jangka Aging
+			{ width: 38 }, // H: Keterangan / Keperluan
+			{ width: 18 }, // I: Total Bon
+			{ width: 20 }, // J: Nominal Diajukan (ACC)
+			{ width: 18 }, // K: Batas Waktu / Target ACC
+			{ width: 26 }  // L: Catatan Pengajuan
 		];
 
 		// Judul Laporan
@@ -96,10 +107,11 @@ export const GET: RequestHandler = async ({ url }) => {
 			'KATEGORI',
 			'NO. NOTA / BON',
 			'TGL NOTA / BON',
+			'AGING HUTANG',
 			'KETERANGAN / KEPERLUAN',
 			'TOTAL BON',
 			'NOMINAL DIAJUKAN',
-			'TGL PENGAJUAN',
+			'BATAS WAKTU ACC',
 			'CATATAN PENGAJUAN'
 		];
 
@@ -110,7 +122,7 @@ export const GET: RequestHandler = async ({ url }) => {
 			cell.font = { bold: true, size: 10, color: { argb: 'FFFFFFFF' }, name: 'Calibri' };
 			cell.alignment = {
 				vertical: 'middle',
-				horizontal: idx === 0 || idx === 2 || idx === 3 || idx === 4 || idx === 8 ? 'center' : idx === 6 || idx === 7 ? 'right' : 'left'
+				horizontal: idx === 0 || idx === 2 || idx === 3 || idx === 4 || idx === 5 || idx === 9 ? 'center' : idx === 7 || idx === 8 ? 'right' : 'left'
 			};
 			cell.fill = {
 				type: 'pattern',
@@ -134,6 +146,7 @@ export const GET: RequestHandler = async ({ url }) => {
 			const row = ws.getRow(currentRow);
 			const amt = Number(d.amount || 0);
 			const pendAmt = Number(d.pending_amount || d.remaining_amount || 0);
+			const daysOverdue = Number(d.days_overdue || 0);
 			totalAmount += amt;
 			totalPending += pendAmt;
 
@@ -152,23 +165,27 @@ export const GET: RequestHandler = async ({ url }) => {
 			row.getCell('F').value = d.invoice_date;
 			row.getCell('F').alignment = { horizontal: 'center' };
 
-			row.getCell('G').value = d.description;
+			row.getCell('G').value = `${getAgingBucket(daysOverdue)} (${daysOverdue} hr)`;
+			row.getCell('G').alignment = { horizontal: 'center' };
+			row.getCell('G').font = { bold: true, size: 9.5, name: 'Calibri' };
 
-			row.getCell('H').value = amt;
-			row.getCell('H').numFmt = '#,##0';
-			row.getCell('H').alignment = { horizontal: 'right' };
+			row.getCell('H').value = d.description;
 
-			row.getCell('I').value = pendAmt;
+			row.getCell('I').value = amt;
 			row.getCell('I').numFmt = '#,##0';
 			row.getCell('I').alignment = { horizontal: 'right' };
-			row.getCell('I').font = { bold: true, size: 10, color: { argb: 'FFB45309' }, name: 'Calibri' };
 
-			row.getCell('J').value = d.pending_payment_date || d.invoice_date;
-			row.getCell('J').alignment = { horizontal: 'center' };
+			row.getCell('J').value = pendAmt;
+			row.getCell('J').numFmt = '#,##0';
+			row.getCell('J').alignment = { horizontal: 'right' };
+			row.getCell('J').font = { bold: true, size: 10, color: { argb: 'FFB45309' }, name: 'Calibri' };
 
-			row.getCell('K').value = d.pending_notes ? `${d.pending_notes} (Oleh: ${d.pending_by})` : `Diajukan oleh: ${d.pending_by}`;
+			row.getCell('K').value = d.pending_expires_fmt || d.pending_payment_date || d.invoice_date;
+			row.getCell('K').alignment = { horizontal: 'center' };
 
-			for (let c = 2; c <= 11; c++) {
+			row.getCell('L').value = d.pending_notes ? `${d.pending_notes} (Oleh: ${d.pending_by})` : `Diajukan oleh: ${d.pending_by}`;
+
+			for (let c = 2; c <= 12; c++) {
 				const cell = row.getCell(c);
 				cell.border = {
 					top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
@@ -185,19 +202,19 @@ export const GET: RequestHandler = async ({ url }) => {
 		const totalRow = ws.getRow(currentRow);
 		totalRow.getCell('B').value = 'TOTAL PENGAJUAN MENUNGGU ACC';
 		totalRow.getCell('B').font = { bold: true, size: 11, name: 'Calibri' };
-		ws.mergeCells(`B${currentRow}:G${currentRow}`);
+		ws.mergeCells(`B${currentRow}:H${currentRow}`);
 
-		totalRow.getCell('H').value = totalAmount;
-		totalRow.getCell('H').numFmt = '#,##0';
-		totalRow.getCell('H').font = { bold: true, size: 10, name: 'Calibri' };
-		totalRow.getCell('H').alignment = { horizontal: 'right' };
-
-		totalRow.getCell('I').value = totalPending;
+		totalRow.getCell('I').value = totalAmount;
 		totalRow.getCell('I').numFmt = '#,##0';
-		totalRow.getCell('I').font = { bold: true, size: 11, color: { argb: 'FFB45309' }, name: 'Calibri' };
+		totalRow.getCell('I').font = { bold: true, size: 10, name: 'Calibri' };
 		totalRow.getCell('I').alignment = { horizontal: 'right' };
 
-		for (let c = 2; c <= 11; c++) {
+		totalRow.getCell('J').value = totalPending;
+		totalRow.getCell('J').numFmt = '#,##0';
+		totalRow.getCell('J').font = { bold: true, size: 11, color: { argb: 'FFB45309' }, name: 'Calibri' };
+		totalRow.getCell('J').alignment = { horizontal: 'right' };
+
+		for (let c = 2; c <= 12; c++) {
 			const cell = totalRow.getCell(c);
 			cell.fill = {
 				type: 'pattern',
@@ -250,6 +267,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	const tableBody: any[] = pendingDebts.map((d: any, idx: number) => {
 		const amt = Number(d.amount || 0);
 		const pendAmt = Number(d.pending_amount || d.remaining_amount || 0);
+		const daysOverdue = Number(d.days_overdue || 0);
 		totalBon += amt;
 		totalPengajuan += pendAmt;
 
@@ -258,13 +276,13 @@ export const GET: RequestHandler = async ({ url }) => {
 		return [
 			(idx + 1).toString(),
 			d.contact_name,
-			d.contact_type === 'non_vendor' ? 'Non-Vendor' : 'Supplier',
 			d.invoice_no || '-',
 			d.invoice_date,
+			`${getAgingBucket(daysOverdue)}\n(${daysOverdue} hr)`,
 			ket,
 			'Rp. ' + Math.round(amt).toLocaleString('id-ID'),
 			'Rp. ' + Math.round(pendAmt).toLocaleString('id-ID'),
-			d.pending_payment_date || d.invoice_date
+			d.pending_expires_fmt || d.pending_payment_date || d.invoice_date
 		];
 	});
 
@@ -280,13 +298,13 @@ export const GET: RequestHandler = async ({ url }) => {
 		head: [[
 			'NO',
 			'SUPPLIER / PIHAK',
-			'TIPE',
-			'NO. NOTA / BON',
-			'TGL NOTA / BON',
+			'NO. BON',
+			'TGL NOTA',
+			'AGING HUTANG',
 			'KETERANGAN / KEPERLUAN',
 			'TOTAL BON',
 			'NOMINAL DIAJUKAN',
-			'TGL PENGAJUAN'
+			'BATAS WAKTU ACC'
 		]],
 		body: tableBody,
 		theme: 'grid',
@@ -306,14 +324,14 @@ export const GET: RequestHandler = async ({ url }) => {
 		},
 		columnStyles: {
 			0: { cellWidth: 10, halign: 'center' },
-			1: { cellWidth: 44, fontStyle: 'bold' },
-			2: { cellWidth: 22, halign: 'center' },
-			3: { cellWidth: 25, halign: 'center' },
-			4: { cellWidth: 22, halign: 'center' },
+			1: { cellWidth: 42, fontStyle: 'bold' },
+			2: { cellWidth: 23, halign: 'center' },
+			3: { cellWidth: 21, halign: 'center' },
+			4: { cellWidth: 24, halign: 'center', fontStyle: 'bold' },
 			5: { cellWidth: 'auto' },
-			6: { cellWidth: 30, halign: 'right' },
-			7: { cellWidth: 34, halign: 'right', fontStyle: 'bold' },
-			8: { cellWidth: 24, halign: 'center' }
+			6: { cellWidth: 29, halign: 'right' },
+			7: { cellWidth: 33, halign: 'right', fontStyle: 'bold' },
+			8: { cellWidth: 26, halign: 'center' }
 		}
 	});
 

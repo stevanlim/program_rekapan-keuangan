@@ -153,6 +153,7 @@ async function initTables(p: mysql.Pool) {
 	await addColIfMissing('approved_at', 'DATETIME NULL DEFAULT NULL');
 	await addColIfMissing('rejected_notes', 'TEXT NULL DEFAULT NULL');
 	await addColIfMissing('contact_type', "ENUM('supplier','non_vendor') NULL DEFAULT NULL");
+	await addColIfMissing('pending_expires_at', 'DATETIME NULL DEFAULT NULL');
 
 	// Sinkronisasi tanggal bayar (payment_date) agar mengikuti tanggal saat di-ACC (approved_at), bukan tanggal saat menunggu ACC
 	try {

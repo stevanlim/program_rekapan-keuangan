@@ -2,6 +2,7 @@
 	import type { PageData, ActionData } from "./$types";
 	import type { Debt } from "$lib/types";
 	import { enhance } from "$app/forms";
+	import { invalidateAll } from "$app/navigation";
 	import { sound } from "$lib/sound";
 	import { theme, toggleTheme, initTheme } from "$lib/theme";
 	import CatLogoIcon from "$lib/components/CatLogoIcon.svelte";
@@ -20,8 +21,11 @@
 
 	);
 
-	// Filter aging di halaman debts
+	// Filter aging di halaman debts & halaman menunggu ACC
 	let agingFilter = $state<
+		"all" | "0-30" | "31-60" | "61-90" | "91-120" | ">120"
+	>("all");
+	let pendingAgingFilter = $state<
 		"all" | "0-30" | "31-60" | "61-90" | "91-120" | ">120"
 	>("all");
 	let search = $state("");
@@ -94,8 +98,93 @@
 		| "name_desc"
 	>("date_desc");
 	let pendingSortBy = $state<
-		"date_desc" | "date_asc" | "name_asc" | "name_desc"
-	>("date_desc");
+		"expiry_asc" | "aging_desc" | "date_desc" | "date_asc" | "name_asc" | "name_desc"
+	>("expiry_asc");
+
+	// State Countdown Real-Time (per detik) & Jangka Hari Kadaluarsa ACC
+	let nowTick = $state<number>(Date.now());
+	let isAutoExpiring = false;
+
+	function addDaysISO(baseIso: string, days: number): string {
+		const parts = baseIso.split("-");
+		const d =
+			parts.length === 3
+				? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
+				: new Date();
+		d.setDate(d.getDate() + Math.max(0, Math.round(days)));
+		const yyyy = d.getFullYear();
+		const mm = String(d.getMonth() + 1).padStart(2, "0");
+		const dd = String(d.getDate()).padStart(2, "0");
+		return `${yyyy}-${mm}-${dd}`;
+	}
+
+	let accExpireDays = $state<number>(3);
+	let payTargetDate = $state<string>(addDaysISO(getLocalTodayISO(), 3));
+
+	function handleExpireDaysChange(daysVal: number) {
+		const cleanDays = Math.max(1, Math.min(365, Math.round(daysVal || 1)));
+		accExpireDays = cleanDays;
+		payTargetDate = addDaysISO(getLocalTodayISO(), cleanDays);
+	}
+
+	function handlePayTargetDateChange(newDateStr: string) {
+		payTargetDate = newDateStr;
+		const todayParts = getLocalTodayISO().split("-");
+		const targetParts = newDateStr.split("-");
+		if (todayParts.length === 3 && targetParts.length === 3) {
+			const t0 = new Date(
+				Number(todayParts[0]),
+				Number(todayParts[1]) - 1,
+				Number(todayParts[2]),
+			).getTime();
+			const t1 = new Date(
+				Number(targetParts[0]),
+				Number(targetParts[1]) - 1,
+				Number(targetParts[2]),
+			).getTime();
+			const diffDays = Math.round((t1 - t0) / 86400000);
+			accExpireDays = Math.max(1, diffDays);
+		}
+	}
+
+	function formatAccCountdown(
+		expiresTs?: number | null,
+		nowMs: number = nowTick,
+	): {
+		text: string;
+		sub: string;
+		level: "none" | "safe" | "warning" | "critical" | "expired";
+	} {
+		if (!expiresTs) {
+			return { text: "Tanpa Batas Waktu", sub: "Menunggu ACC", level: "none" };
+		}
+		const diffMs = expiresTs - nowMs;
+		if (diffMs <= 0) {
+			return {
+				text: "0h : 00j : 00m : 00d",
+				sub: "Kadaluarsa — Kembali ke OS Hutang",
+				level: "expired",
+			};
+		}
+		const totalSec = Math.floor(diffMs / 1000);
+		const days = Math.floor(totalSec / 86400);
+		const hours = Math.floor((totalSec % 86400) / 3600);
+		const mins = Math.floor((totalSec % 3600) / 60);
+		const secs = totalSec % 60;
+
+		const hh = String(hours).padStart(2, "0");
+		const mm = String(mins).padStart(2, "0");
+		const ss = String(secs).padStart(2, "0");
+		const text = `${days}h : ${hh}j : ${mm}m : ${ss}d`;
+
+		if (diffMs <= 6 * 3600 * 1000) {
+			return { text, sub: "🚨 Prioritas Kritis (< 6 Jam)", level: "critical" };
+		}
+		if (diffMs <= 24 * 3600 * 1000) {
+			return { text, sub: "⚠️ Segera Habis (< 1 Hari)", level: "warning" };
+		}
+		return { text, sub: "⏳ Hitung Mundur Aktif", level: "safe" };
+	}
 
 	function sortDebtItems(
 		list: any[],
@@ -103,6 +192,17 @@
 		usePaymentDate: boolean = false,
 	) {
 		return [...list].sort((a, b) => {
+			if (sortMode === "expiry_asc") {
+				const expA = a.pending_expires_ts ? Number(a.pending_expires_ts) : Number.MAX_SAFE_INTEGER;
+				const expB = b.pending_expires_ts ? Number(b.pending_expires_ts) : Number.MAX_SAFE_INTEGER;
+				if (expA !== expB) return expA - expB;
+				return (b.days_overdue || 0) - (a.days_overdue || 0);
+			}
+			if (sortMode === "aging_desc") {
+				const odDiff = (b.days_overdue || 0) - (a.days_overdue || 0);
+				if (odDiff !== 0) return odDiff;
+				return (a.invoice_date || "").localeCompare(b.invoice_date || "");
+			}
 			const dateA = usePaymentDate
 				? a.payment_date || a.invoice_date || ""
 				: a.invoice_date || "";
@@ -246,6 +346,32 @@
 				if (soundEnabled) sound.playPerhatian();
 			}
 		}, 600);
+
+		// Timer 1 detik untuk hitung mundur (detik/menit/jam/hari) batas kadaluarsa ACC & auto-batal ke OS Hutang Aktif
+		const timer = setInterval(async () => {
+			nowTick = Date.now();
+			const pendingAll = data.allPendingDebts || data.pendingDebts || [];
+			const hasExpired = pendingAll.some(
+				(d: any) => d.pending_expires_ts && Number(d.pending_expires_ts) <= nowTick,
+			);
+			if (hasExpired && !isAutoExpiring) {
+				isAutoExpiring = true;
+				try {
+					await invalidateAll();
+					notify(
+						"warning",
+						"⏰ Pengajuan ACC Kadaluarsa!",
+						"Tagihan yang melewati batas waktu tunggu ACC otomatis dibatalkan dan dikembalikan ke OS Hutang Aktif.",
+					);
+				} finally {
+					setTimeout(() => {
+						isAutoExpiring = false;
+					}, 2000);
+				}
+			}
+		}, 1000);
+
+		return () => clearInterval(timer);
 	});
 
 	// Modal Detail Bon
@@ -320,6 +446,8 @@
 		payAmountFormatted = Math.round(d.remaining_amount).toLocaleString(
 			"id-ID",
 		);
+		accExpireDays = 3;
+		payTargetDate = isBoss ? getLocalTodayISO() : addDaysISO(getLocalTodayISO(), 3);
 		showPay = true;
 	}
 
@@ -641,9 +769,32 @@
 		return { count: pendingTimeFiltered.length, totalPending };
 	});
 
+	let pendingAgingBuckets = $derived.by(() => {
+		const b = {
+			b0_30: 0,
+			b31_60: 0,
+			b61_90: 0,
+			b91_120: 0,
+			b_over120: 0,
+			total: 0,
+		};
+		for (const d of pendingTimeFiltered) {
+			const nom = d.pending_amount || d.remaining_amount;
+			if (d.aging_bucket === "0-30") b.b0_30 += nom;
+			else if (d.aging_bucket === "31-60") b.b31_60 += nom;
+			else if (d.aging_bucket === "61-90") b.b61_90 += nom;
+			else if (d.aging_bucket === "91-120") b.b91_120 += nom;
+			else b.b_over120 += nom;
+			b.total += nom;
+		}
+		return b;
+	});
+
 	let filteredPendingDebts = $derived(
 		sortDebtItems(
 			pendingTimeFiltered.filter((d: Debt) => {
+				if (pendingAgingFilter !== "all" && d.aging_bucket !== pendingAgingFilter)
+					return false;
 				if (pendingSearch.trim()) {
 					const q = pendingSearch.toLowerCase();
 					return (
@@ -2269,6 +2420,148 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					</div>
 				</div>
 
+				<!-- Aging Summary 5 Bucket di Menu Menunggu ACC (Agar Bos Bisa Lihat Jangka Waktu & Prioritas) -->
+				<div class="aging-bar" style="margin-bottom:1rem;">
+					<button
+						type="button"
+						onclick={() =>
+							(pendingAgingFilter =
+								pendingAgingFilter === "0-30" ? "all" : "0-30")}
+						class="aging-card aging-0-30"
+						style="cursor:pointer; border: {pendingAgingFilter === '0-30'
+							? '2px solid #16a34a'
+							: '1px solid var(--c-border)'}"
+					>
+						<div class="aging-label">0 – 30 Hari</div>
+						<div class="aging-amount">
+							{rp(pendingAgingBuckets.b0_30)}
+						</div>
+						<div class="aging-sub">Lancar</div>
+					</button>
+
+					<button
+						type="button"
+						onclick={() =>
+							(pendingAgingFilter =
+								pendingAgingFilter === "31-60" ? "all" : "31-60")}
+						class="aging-card aging-31-60"
+						style="cursor:pointer; border: {pendingAgingFilter === '31-60'
+							? '2px solid #d97706'
+							: '1px solid var(--c-border)'}"
+					>
+						<div class="aging-label">31 – 60 Hari</div>
+						<div class="aging-amount">
+							{rp(pendingAgingBuckets.b31_60)}
+						</div>
+						<div class="aging-sub">Perlu Perhatian</div>
+					</button>
+
+					<button
+						type="button"
+						onclick={() =>
+							(pendingAgingFilter =
+								pendingAgingFilter === "61-90" ? "all" : "61-90")}
+						class="aging-card aging-61-90"
+						style="cursor:pointer; border: {pendingAgingFilter === '61-90'
+							? '2px solid #ea580c'
+							: '1px solid var(--c-border)'}"
+					>
+						<div class="aging-label">61 – 90 Hari</div>
+						<div class="aging-amount">
+							{rp(pendingAgingBuckets.b61_90)}
+						</div>
+						<div class="aging-sub">Menumpuk</div>
+					</button>
+
+					<button
+						type="button"
+						onclick={() =>
+							(pendingAgingFilter =
+								pendingAgingFilter === "91-120" ? "all" : "91-120")}
+						class="aging-card aging-91-120"
+						style="cursor:pointer; border: {pendingAgingFilter === '91-120'
+							? '2px solid #dc2626'
+							: '1px solid var(--c-border)'}"
+					>
+						<div class="aging-label">91 – 120 Hari</div>
+						<div class="aging-amount">
+							{rp(pendingAgingBuckets.b91_120)}
+						</div>
+						<div class="aging-sub">Kritis</div>
+					</button>
+
+					<button
+						type="button"
+						onclick={() =>
+							(pendingAgingFilter =
+								pendingAgingFilter === ">120" ? "all" : ">120")}
+						class="aging-card aging-over120"
+						style="cursor:pointer; border: {pendingAgingFilter === '>120'
+							? '2px solid #7c3aed'
+							: '1px solid var(--c-border)'}"
+					>
+						<div class="aging-label">&gt; 120 Hari</div>
+						<div class="aging-amount">
+							{rp(pendingAgingBuckets.b_over120)}
+						</div>
+						<div class="aging-sub">Sangat Lama (Prioritas)</div>
+					</button>
+				</div>
+
+				<!-- Filter Tab Jangka Waktu Aging di Menu Menunggu ACC -->
+				<div class="toolbar" style="margin-bottom:0.85rem;">
+					<div class="filter-tabs">
+						<button
+							type="button"
+							class="filter-tab"
+							class:active={pendingAgingFilter === "all"}
+							onclick={() => (pendingAgingFilter = "all")}
+						>
+							Semua ({pendingTimeFiltered.length})
+						</button>
+						<button
+							type="button"
+							class="filter-tab"
+							class:active={pendingAgingFilter === "0-30"}
+							onclick={() => (pendingAgingFilter = "0-30")}
+						>
+							0-30 Hari
+						</button>
+						<button
+							type="button"
+							class="filter-tab"
+							class:active={pendingAgingFilter === "31-60"}
+							onclick={() => (pendingAgingFilter = "31-60")}
+						>
+							31-60 Hari
+						</button>
+						<button
+							type="button"
+							class="filter-tab"
+							class:active={pendingAgingFilter === "61-90"}
+							onclick={() => (pendingAgingFilter = "61-90")}
+						>
+							61-90 Hari
+						</button>
+						<button
+							type="button"
+							class="filter-tab"
+							class:active={pendingAgingFilter === "91-120"}
+							onclick={() => (pendingAgingFilter = "91-120")}
+						>
+							91-120 Hari
+						</button>
+						<button
+							type="button"
+							class="filter-tab"
+							class:active={pendingAgingFilter === ">120"}
+							onclick={() => (pendingAgingFilter = ">120")}
+						>
+							&gt;120 Hari
+						</button>
+					</div>
+				</div>
+
 				<!-- Bar Pencarian & Info Petunjuk -->
 				<div class="debt-toolbar" style="margin-bottom:1rem;">
 					<div
@@ -2288,13 +2581,14 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						<select
 							class="sort-select"
 							bind:value={pendingSortBy}
-							title="Urutkan daftar antrean ACC"
+							title="Urutkan daftar antrean ACC berdasarkan prioritas batas waktu, aging, atau nama"
 						>
-							<option value="date_desc">📅 Tgl: Terbaru</option>
-							<option value="date_asc">📅 Tgl: Terlama</option>
+							<option value="expiry_asc">⏰ Sisa Waktu ACC: Paling Mendesak</option>
+							<option value="aging_desc">🔥 Prioritas Aging: Terlama (&gt;120 Hari)</option>
+							<option value="date_desc">📅 Tgl Nota: Terbaru</option>
+							<option value="date_asc">📅 Tgl Nota: Terlama</option>
 							<option value="name_asc">🔤 Supplier: A - Z</option>
-							<option value="name_desc">🔤 Supplier: Z - A</option
-							>
+							<option value="name_desc">🔤 Supplier: Z - A</option>
 						</select>
 					</div>
 
@@ -2362,25 +2656,28 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						<table class="table" style="width:100%;">
 							<thead>
 								<tr>
-									<th style="width:45px;">No</th>
+									<th style="width:42px;">No</th>
 									<th>Supplier / Toko</th>
 									<th>No. Bon & Ket</th>
-									<th>Tgl Nota / Bon</th>
+									<th>Tgl Nota & Tempo</th>
+									<th>Jangka Waktu (Aging)</th>
 									<th>Total Bon</th>
 									<th
 										style="background:#fffbeb; color:#92400e;"
 										>Nominal Diajukan</th
 									>
-									<th>Tgl Pengajuan</th>
+									<th>Batas Waktu ACC (Countdown)</th>
 									<th>Diajukan Oleh</th>
-									<th>Status</th>
 									<th style="text-align:right;">Aksi</th>
 								</tr>
 							</thead>
 							<tbody>
 								{#each filteredPendingDebts as d, i}
+									{@const cd = formatAccCountdown(d.pending_expires_ts, nowTick)}
 									<tr
 										style="transition:background 0.15s ease;"
+										class:row-overdue={cd.level === "critical" || d.urgency === "overdue"}
+										class:row-h5={cd.level === "warning" || d.urgency === "h5"}
 									>
 										<td
 											style="color:#94a3b8; font-weight:600;"
@@ -2409,7 +2706,7 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 												{d.invoice_no || "-"}
 											</div>
 											<div
-												style="font-size:0.78rem; color:#64748b; max-width:220px; white-space:normal;"
+												style="font-size:0.78rem; color:#64748b; max-width:210px; white-space:normal;"
 											>
 												{d.description}
 											</div>
@@ -2418,7 +2715,32 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 											<div
 												style="font-weight:600; color:#334155; font-size:0.82rem;"
 											>
-												{d.invoice_date || "-"}
+												Nota: {d.invoice_date || "-"}
+											</div>
+											<div
+												style="font-size:0.73rem; color:#64748b; margin-top:2px;"
+											>
+												Tempo: <strong>{d.effective_due_date || "-"}</strong>
+											</div>
+										</td>
+										<td>
+											<div style="display:flex; flex-direction:column; gap:0.25rem; align-items:flex-start;">
+												<span class="badge {agingClass(d.aging_bucket)}">
+													{d.aging_bucket} hr ({d.days_overdue} hari)
+												</span>
+												{#if d.urgency === "overdue"}
+													<span class="badge badge-overdue" style="font-size:0.68rem;">
+														🚨 Lewat {Math.abs(d.days_until_due)} hr
+													</span>
+												{:else if d.urgency === "h5"}
+													<span class="badge badge-h5" style="font-size:0.68rem;">
+														⚠️ H-{d.days_until_due} hr
+													</span>
+												{:else}
+													<span class="badge badge-safe" style="font-size:0.68rem;">
+														✅ Aman
+													</span>
+												{/if}
 											</div>
 										</td>
 										<td>
@@ -2448,12 +2770,28 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 											</div>
 										</td>
 										<td>
-											<div
-												style="font-weight:600; color:#334155; font-size:0.82rem;"
-											>
-												{d.pending_payment_date ||
-													d.invoice_date}
-											</div>
+											{#if d.pending_expires_ts}
+												<div
+													style="display:inline-flex; flex-direction:column; gap:0.15rem; padding:0.35rem 0.6rem; border-radius:8px; font-family:monospace; font-weight:800; font-size:0.82rem; border:1px solid {cd.level === 'critical' ? '#fca5a5' : cd.level === 'warning' ? '#fcd34d' : '#bfdbfe'}; background:{cd.level === 'critical' ? '#fef2f2' : cd.level === 'warning' ? '#fffbeb' : '#eff6ff'}; color:{cd.level === 'critical' ? '#b91c1c' : cd.level === 'warning' ? '#b45309' : '#1d4ed8'};"
+												>
+													<span>⏱️ {cd.text}</span>
+													<span style="font-family:inherit; font-size:0.68rem; font-weight:700;">
+														{cd.sub}
+													</span>
+												</div>
+												<div style="font-size:0.7rem; color:#64748b; margin-top:3px;">
+													Batas Tgl: <strong>{d.pending_payment_date || "-"}</strong>
+												</div>
+											{:else}
+												<div style="font-weight:600; color:#334155; font-size:0.82rem;">
+													Target: {d.pending_payment_date || d.invoice_date}
+												</div>
+												<span
+													style="display:inline-flex; align-items:center; gap:0.2rem; font-size:0.68rem; font-weight:700; background:#fef3c7; color:#92400e; padding:0.15rem 0.45rem; border-radius:12px; margin-top:3px;"
+												>
+													⏳ Menunggu ACC
+												</span>
+											{/if}
 										</td>
 										<td>
 											<div
@@ -2469,13 +2807,6 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 													"{d.pending_notes}"
 												</div>
 											{/if}
-										</td>
-										<td>
-											<span
-												style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.72rem; font-weight:700; background:#fef3c7; color:#92400e; padding:0.25rem 0.55rem; border-radius:20px; border:1px solid #fde68a;"
-											>
-												<span>⏳</span> Menunggu ACC
-											</span>
 										</td>
 										<td style="text-align:right;">
 											<div
@@ -4492,10 +4823,20 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						</div>
 					{/if}
 
-					<!-- Info tagihan yang dibayar -->
+					<!-- Info tagihan yang dibayar beserta Kategori Aging -->
 					<div class="debt-info-box">
-						<div class="name">{payDebt.contact_name}</div>
-						<div class="desc">{payDebt.description}</div>
+						<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem; flex-wrap:wrap;">
+							<div>
+								<div class="name">{payDebt.contact_name}</div>
+								<div class="desc">{payDebt.description}</div>
+							</div>
+							<span class="badge {agingClass(payDebt.aging_bucket)}">
+								Aging: {payDebt.aging_bucket} hr ({payDebt.days_overdue} hari)
+							</span>
+						</div>
+						<div style="font-size:0.75rem; color:#64748b; margin-top:0.35rem;">
+							Tgl Nota: <strong>{payDebt.invoice_date}</strong> • Jatuh Tempo Nota: <strong>{payDebt.effective_due_date}</strong>
+						</div>
 						<div class="amount-row">
 							<span style="color:#64748b; font-size:0.82rem;"
 								>Sisa yang harus dibayar:</span
@@ -4506,18 +4847,56 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						</div>
 					</div>
 
+					{#if !isBoss}
+						<!-- Pengaturan Jangka Waktu / Batas Kadaluarsa ACC (Jumlah Hari -> Otomatis Set Tanggal) -->
+						<div style="background:#fffbeb; border:1.5px solid #fde68a; border-radius:10px; padding:0.85rem 1rem; margin-bottom:1rem;">
+							<label for="input-expire-days" style="display:block; font-size:0.82rem; font-weight:700; color:#92400e; margin-bottom:0.4rem;">
+								⏱️ Jangka Waktu / Batas Jatuh Tempo ACC (Berapa Hari):
+							</label>
+							<div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+								<input
+									id="input-expire-days"
+									type="number"
+									name="expire_days"
+									min="1"
+									max="365"
+									value={accExpireDays}
+									oninput={(e) => handleExpireDaysChange(Number(e.currentTarget.value))}
+									required
+									style="width:90px; padding:0.45rem 0.65rem; border:1.5px solid #f59e0b; border-radius:8px; font-size:0.95rem; font-weight:800; color:#92400e; text-align:center; background:#ffffff;"
+								/>
+								<span style="font-size:0.85rem; font-weight:700; color:#78350f;">Hari</span>
+								<div style="display:flex; gap:0.3rem; flex-wrap:wrap; margin-left:0.25rem;">
+									{#each [1, 2, 3, 5, 7, 14] as presetDay}
+										<button
+											type="button"
+											onclick={() => handleExpireDaysChange(presetDay)}
+											style="padding:0.28rem 0.55rem; border-radius:6px; font-size:0.74rem; font-weight:700; cursor:pointer; border:1px solid {accExpireDays === presetDay ? '#d97706' : '#fcd34d'}; background:{accExpireDays === presetDay ? '#f59e0b' : '#ffffff'}; color:{accExpireDays === presetDay ? '#ffffff' : '#92400e'};"
+										>
+											{presetDay} Hr
+										</button>
+									{/each}
+								</div>
+							</div>
+							<div style="font-size:0.74rem; color:#92400e; margin-top:0.45rem; line-height:1.4;">
+								📌 Otomatis terset jatuh tempo ACC pada tanggal <strong>{payTargetDate}</strong> (Hitung mundur <strong>{accExpireDays} hari</strong> dalam detik, menit, jam &amp; hari). Jika lewat batas ini belum di-ACC, otomatis dibatalkan dan kembali ke <strong>OS Hutang Aktif</strong>.
+							</div>
+						</div>
+					{/if}
+
 					<!-- Tanggal & Nominal dengan Format Rupiah & Titik -->
 					<div class="field-grid">
 						<div class="field">
 							<label
 								>{isBoss
 									? "Tanggal Bayar"
-									: "Tanggal Rencana Bayar"}</label
+									: "Tanggal Batas / Target ACC"}</label
 							>
 							<input
 								type="date"
 								name="payment_date"
-								value={todayISODate}
+								value={payTargetDate}
+								onchange={(e) => handlePayTargetDateChange(e.currentTarget.value)}
 								required
 							/>
 						</div>

@@ -33,6 +33,8 @@ export interface Debt {
 	urgency: 'safe' | 'h5' | 'overdue';
 	pending_amount?: number | null;
 	pending_payment_date?: string | null;
+	pending_expires_at?: string | null;
+	pending_expires_ts?: number | null;
 	pending_source_fund?: string | null;
 	pending_notes?: string | null;
 	pending_by?: string | null;
