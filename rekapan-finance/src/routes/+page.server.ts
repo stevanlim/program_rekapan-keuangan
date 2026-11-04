@@ -3,6 +3,13 @@ import { getDb } from '$lib/server/db';
 import { fail, redirect } from '@sveltejs/kit';
 import { getSessionUser } from '$lib/server/auth';
 
+function getLocalDateStr(d: Date = new Date()): string {
+	const year = d.getFullYear();
+	const month = String(d.getMonth() + 1).padStart(2, '0');
+	const day = String(d.getDate()).padStart(2, '0');
+	return `${year}-${month}-${day}`;
+}
+
 export const load: PageServerLoad = async ({ url, cookies }) => {
 	// Proteksi rute login: Cek sesi di cookie
 	const sessionId = cookies.get('finance_session');
@@ -97,12 +104,24 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 			(d.amount - d.paid_amount) AS remaining_amount,
 			d.description, d.status,
 			d.approved_by,
-			DATE_FORMAT(d.approved_at,'%Y-%m-%d %H:%i') AS approved_at
+			DATE_FORMAT(d.approved_at,'%Y-%m-%d %H:%i') AS approved_at,
+			DATE_FORMAT(
+				COALESCE(
+					CASE
+						WHEN d.approved_at IS NOT NULL AND (SELECT MAX(p.payment_date) FROM payments p WHERE p.debt_id = d.id) < DATE(d.approved_at)
+						THEN DATE(d.approved_at)
+						ELSE (SELECT MAX(p.payment_date) FROM payments p WHERE p.debt_id = d.id)
+					END,
+					DATE(d.approved_at),
+					d.invoice_date
+				),
+				'%Y-%m-%d'
+			) AS payment_date
 		FROM debts d
 		JOIN contacts c ON d.contact_id = c.id
 		JOIN companies comp ON d.company_id = comp.id
 		WHERE d.status = 'paid'
-		ORDER BY d.created_at DESC
+		ORDER BY payment_date DESC, d.id DESC
 	`);
 
 	// Query histori pembayaran harian dari SEMUA perusahaan
@@ -110,7 +129,15 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 		SELECT
 			p.id, p.debt_id, p.company_id,
 			comp.code AS company_code,
-			DATE_FORMAT(p.payment_date,'%Y-%m-%d') AS payment_date,
+			DATE_FORMAT(
+				CASE
+					WHEN d.approved_at IS NOT NULL AND p.payment_date < DATE(d.approved_at)
+					THEN DATE(d.approved_at)
+					ELSE p.payment_date
+				END,
+				'%Y-%m-%d'
+			) AS payment_date,
+			DATE_FORMAT(d.invoice_date,'%Y-%m-%d') AS invoice_date,
 			p.amount_paid, p.source_fund, p.notes,
 			c.name AS contact_name,
 			d.description AS debt_description,
@@ -119,7 +146,7 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 		JOIN debts d ON p.debt_id = d.id
 		JOIN contacts c ON d.contact_id = c.id
 		JOIN companies comp ON p.company_id = comp.id
-		ORDER BY p.payment_date DESC, p.id DESC
+		ORDER BY payment_date DESC, p.id DESC
 	`);
 
 	// Query pelaporan saldo harian dari SEMUA perusahaan
@@ -401,9 +428,9 @@ export const actions: Actions = {
 		const currentUser = sessionId ? await getSessionUser(sessionId) : null;
 		const f = await request.formData();
 		const debt_id = Number(f.get('debt_id'));
-		const payment_date = f.get('payment_date')?.toString().trim() || new Date().toISOString().split('T')[0];
+		const payment_date = f.get('payment_date')?.toString().trim() || getLocalDateStr();
 		const amount_paid = parseFloat(f.get('amount_paid')?.toString().replace(/\D/g, '') || '0');
-		const source_fund = f.get('source_fund')?.toString().trim() || 'Tunai';
+		const source_fund = f.get('source_fund')?.toString().trim() || 'Transfer';
 		const notes = f.get('notes')?.toString().trim() || null;
 
 		if (!debt_id || amount_paid <= 0) return fail(400, { error: 'Nominal pengajuan pembayaran tidak valid' });
@@ -432,12 +459,15 @@ export const actions: Actions = {
 		return { success: true, requested: true };
 	},
 
-	// 2. Atasan (Pak Denny) menyetujui / ACC pembayaran hutang -> status jadi 'paid' / masuk tabel payments
+	// 2. Atasan (atau Admin via Konfirmasi WA) menyetujui / ACC pembayaran hutang -> status jadi 'paid' / masuk tabel payments
 	approveDebtPayment: async ({ request, cookies }) => {
 		const sessionId = cookies.get('finance_session');
 		const currentUser = sessionId ? await getSessionUser(sessionId) : null;
 		const f = await request.formData();
 		const debt_id = Number(f.get('debt_id'));
+		const approvalMethod = f.get('approval_method')?.toString().trim() || 'direct';
+		const waApprover = f.get('wa_approver')?.toString().trim() || 'Pak Danny / Pak Carmen';
+		const customPaymentDate = f.get('payment_date')?.toString().trim();
 
 		if (!debt_id) return fail(400, { error: 'ID tagihan tidak valid' });
 
@@ -459,10 +489,25 @@ export const actions: Actions = {
 			const total = Number(debt.amount);
 			const newStatus = newPaid >= total ? 'paid' : 'partially_paid';
 
-			const paymentDate = debt.pending_payment_date || new Date().toISOString().split('T')[0];
-			const sourceFund = debt.pending_source_fund || 'Tunai';
-			const approverName = currentUser?.name || 'Pak Denny (Atasan)';
-			const paymentNotes = debt.pending_notes ? `${debt.pending_notes} (Di-ACC oleh ${approverName})` : `Disetujui & di-ACC oleh ${approverName}`;
+			// Tanggal pembayaran mengikuti tanggal saat di-ACC (hari ini), bukan tanggal pengajuan menunggu ACC
+			const paymentDate = customPaymentDate || getLocalDateStr();
+			const sourceFund = debt.pending_source_fund || 'Transfer';
+
+			let approverName: string;
+			let paymentNotes: string;
+
+			if (approvalMethod === 'whatsapp') {
+				const adminName = currentUser?.name || currentUser?.username || 'Admin';
+				approverName = `ACC via WA (${waApprover})`;
+				paymentNotes = debt.pending_notes
+					? `${debt.pending_notes} (Di-ACC via WhatsApp oleh ${waApprover} — dikonfirmasi ${adminName})`
+					: `Disetujui & di-ACC via WhatsApp oleh ${waApprover} (dikonfirmasi ${adminName})`;
+			} else {
+				approverName = currentUser?.name || 'Atasan';
+				paymentNotes = debt.pending_notes
+					? `${debt.pending_notes} (Di-ACC oleh ${approverName})`
+					: `Disetujui & di-ACC oleh ${approverName}`;
+			}
 
 			await conn.query(
 				`INSERT INTO payments (debt_id, company_id, payment_date, amount_paid, source_fund, notes) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -518,7 +563,7 @@ export const actions: Actions = {
 			     pending_notes = NULL,
 			     pending_by = NULL
 			 WHERE id = ?`,
-			[prevStatus, `${reason} (oleh ${currentUser?.name || 'Pak Denny'})`, debt_id]
+			[prevStatus, `${reason} (oleh ${currentUser?.name || 'Atasan'})`, debt_id]
 		);
 
 		return { success: true, rejected: true };
@@ -556,9 +601,9 @@ export const actions: Actions = {
 		const currentUser = sessionId ? await getSessionUser(sessionId) : null;
 		const f = await request.formData();
 		const debt_id = Number(f.get('debt_id'));
-		const payment_date = f.get('payment_date')?.toString().trim() || '';
+		const payment_date = f.get('payment_date')?.toString().trim() || getLocalDateStr();
 		const amount_paid = parseFloat(f.get('amount_paid')?.toString().replace(/\D/g, '') || '0');
-		const source_fund = f.get('source_fund')?.toString().trim() || 'Tunai';
+		const source_fund = f.get('source_fund')?.toString().trim() || 'Transfer';
 		const notes = f.get('notes')?.toString().trim() || null;
 
 		if (!debt_id || !payment_date || amount_paid <= 0) return fail(400, { error: 'Data pembayaran tidak lengkap' });
@@ -575,10 +620,11 @@ export const actions: Actions = {
 			const newPaid = Number(debt.paid_amount) + amount_paid;
 			const total = Number(debt.amount);
 			const newStatus = newPaid >= total ? 'paid' : 'partially_paid';
+			const approverName = currentUser?.name || 'Atasan';
 
 			await conn.query(`INSERT INTO payments (debt_id, company_id, payment_date, amount_paid, source_fund, notes) VALUES (?, ?, ?, ?, ?, ?)`,
 				[debt_id, debt.company_id, payment_date, amount_paid, source_fund, notes]);
-			await conn.query(`UPDATE debts SET paid_amount = ?, status = ? WHERE id = ?`, [newPaid, newStatus, debt_id]);
+			await conn.query(`UPDATE debts SET paid_amount = ?, status = ?, approved_by = ?, approved_at = NOW() WHERE id = ?`, [newPaid, newStatus, approverName, debt_id]);
 
 			await conn.commit();
 			return { success: true, paid_off: newStatus === 'paid' };
@@ -679,7 +725,7 @@ export const actions: Actions = {
 			// 3. Simpan record payment di tabel payments
 			await conn.query(
 				`INSERT INTO payments (debt_id, company_id, payment_date, amount_paid, source_fund, notes) 
-				 VALUES (?, ?, ?, ?, 'Kas Langsung', ?)`,
+				 VALUES (?, ?, ?, ?, 'Transfer', ?)`,
 				[debtId, company_id, payment_date, amount, description]
 			);
 

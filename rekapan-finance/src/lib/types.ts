@@ -38,6 +38,7 @@ export interface Debt {
 	pending_by?: string | null;
 	approved_by?: string | null;
 	approved_at?: string | null;
+	payment_date?: string | null;
 	rejected_notes?: string | null;
 }
 
@@ -47,6 +48,7 @@ export interface Payment {
 	company_id: number;
 	company_code?: string;
 	payment_date: string;
+	invoice_date?: string;
 	amount_paid: number;
 	source_fund: string;
 	notes: string | null;

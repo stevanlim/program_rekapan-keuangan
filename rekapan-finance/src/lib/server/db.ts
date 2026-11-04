@@ -153,6 +153,19 @@ async function initTables(p: mysql.Pool) {
 	await addColIfMissing('approved_at', 'DATETIME NULL DEFAULT NULL');
 	await addColIfMissing('rejected_notes', 'TEXT NULL DEFAULT NULL');
 	await addColIfMissing('contact_type', "ENUM('supplier','non_vendor') NULL DEFAULT NULL");
+
+	// Sinkronisasi tanggal bayar (payment_date) agar mengikuti tanggal saat di-ACC (approved_at), bukan tanggal saat menunggu ACC
+	try {
+		await p.query(`
+			UPDATE payments p
+			JOIN debts d ON p.debt_id = d.id
+			SET p.payment_date = DATE(d.approved_at)
+			WHERE d.approved_at IS NOT NULL
+			  AND p.payment_date < DATE(d.approved_at)
+		`);
+	} catch (err) {
+		console.warn('[DB] Payment date sync warning:', err);
+	}
 }
 
 async function seedMasterData(p: mysql.Pool) {

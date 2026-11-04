@@ -38,9 +38,9 @@ export const GET: RequestHandler = async ({ url }) => {
 		ORDER BY c.name ASC, d.invoice_date ASC
 	`, [company.id]);
 
-	// Format tanggal untuk nama file
+	// Format tanggal untuk nama file (sesuai jam lokal)
 	const now = new Date();
-	const dateStr = now.toISOString().split('T')[0];
+	const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
 	// ==========================================
 	// 1. EXPORT EXCEL (PERSIS DENGAN TEMPLATE ASLI)

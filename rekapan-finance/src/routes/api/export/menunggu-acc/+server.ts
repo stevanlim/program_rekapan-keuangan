@@ -4,6 +4,13 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { RequestHandler } from './$types';
 
+function getLocalDateStr(d: Date = new Date()): string {
+	const year = d.getFullYear();
+	const month = String(d.getMonth() + 1).padStart(2, '0');
+	const day = String(d.getDate()).padStart(2, '0');
+	return `${year}-${month}-${day}`;
+}
+
 export const GET: RequestHandler = async ({ url }) => {
 	const db = await getDb();
 	const companyCode = url.searchParams.get('pt') || 'ART';
@@ -32,7 +39,6 @@ export const GET: RequestHandler = async ({ url }) => {
 			d.amount, d.paid_amount, (d.amount - d.paid_amount) AS remaining_amount,
 			COALESCE(d.pending_amount, (d.amount - d.paid_amount)) AS pending_amount,
 			DATE_FORMAT(COALESCE(d.pending_payment_date, CURRENT_DATE()), '%Y-%m-%d') AS pending_payment_date,
-			COALESCE(d.pending_source_fund, 'Tunai') AS pending_source_fund,
 			d.pending_notes,
 			COALESCE(d.pending_by, 'Admin Keuangan') AS pending_by,
 			d.description
@@ -43,7 +49,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	`, [company.id]);
 
 	const now = new Date();
-	const dateStr = now.toISOString().split('T')[0];
+	const dateStr = getLocalDateStr(now);
 	const periodeStr = now.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }).toUpperCase();
 
 	// ==========================================
@@ -60,15 +66,14 @@ export const GET: RequestHandler = async ({ url }) => {
 			{ width: 3 },  // A (margin)
 			{ width: 6 },  // B: No
 			{ width: 28 }, // C: Supplier / Pihak
-			{ width: 15 }, // D: Tipe
-			{ width: 16 }, // E: No. Bon
-			{ width: 14 }, // F: Tgl Bon
-			{ width: 40 }, // G: Keterangan / Keperluan
-			{ width: 18 }, // H: Total Tagihan
+			{ width: 15 }, // D: Kategori
+			{ width: 16 }, // E: No. Nota / Bon
+			{ width: 15 }, // F: Tgl Nota / Bon
+			{ width: 42 }, // G: Keterangan / Keperluan
+			{ width: 18 }, // H: Total Bon
 			{ width: 20 }, // I: Nominal Diajukan (ACC)
-			{ width: 15 }, // J: Sumber Dana
-			{ width: 15 }, // K: Rencana Bayar
-			{ width: 28 }  // L: Catatan Pengajuan
+			{ width: 16 }, // J: Tgl Pengajuan
+			{ width: 28 }  // K: Catatan Pengajuan
 		];
 
 		// Judul Laporan
@@ -89,13 +94,12 @@ export const GET: RequestHandler = async ({ url }) => {
 			'NO',
 			'SUPPLIER / PIHAK',
 			'KATEGORI',
-			'NO. BON',
-			'TGL BON',
+			'NO. NOTA / BON',
+			'TGL NOTA / BON',
 			'KETERANGAN / KEPERLUAN',
 			'TOTAL BON',
 			'NOMINAL DIAJUKAN',
-			'SUMBER DANA',
-			'RENCANA BAYAR',
+			'TGL PENGAJUAN',
 			'CATATAN PENGAJUAN'
 		];
 
@@ -106,7 +110,7 @@ export const GET: RequestHandler = async ({ url }) => {
 			cell.font = { bold: true, size: 10, color: { argb: 'FFFFFFFF' }, name: 'Calibri' };
 			cell.alignment = {
 				vertical: 'middle',
-				horizontal: idx === 0 || idx === 2 || idx === 3 || idx === 4 || idx === 8 || idx === 9 ? 'center' : idx === 6 || idx === 7 ? 'right' : 'left'
+				horizontal: idx === 0 || idx === 2 || idx === 3 || idx === 4 || idx === 8 ? 'center' : idx === 6 || idx === 7 ? 'right' : 'left'
 			};
 			cell.fill = {
 				type: 'pattern',
@@ -159,15 +163,12 @@ export const GET: RequestHandler = async ({ url }) => {
 			row.getCell('I').alignment = { horizontal: 'right' };
 			row.getCell('I').font = { bold: true, size: 10, color: { argb: 'FFB45309' }, name: 'Calibri' };
 
-			row.getCell('J').value = d.pending_source_fund || 'Tunai';
+			row.getCell('J').value = d.pending_payment_date || d.invoice_date;
 			row.getCell('J').alignment = { horizontal: 'center' };
 
-			row.getCell('K').value = d.pending_payment_date || d.invoice_date;
-			row.getCell('K').alignment = { horizontal: 'center' };
+			row.getCell('K').value = d.pending_notes ? `${d.pending_notes} (Oleh: ${d.pending_by})` : `Diajukan oleh: ${d.pending_by}`;
 
-			row.getCell('L').value = d.pending_notes ? `${d.pending_notes} (Oleh: ${d.pending_by})` : `Diajukan oleh: ${d.pending_by}`;
-
-			for (let c = 2; c <= 12; c++) {
+			for (let c = 2; c <= 11; c++) {
 				const cell = row.getCell(c);
 				cell.border = {
 					top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
@@ -196,7 +197,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		totalRow.getCell('I').font = { bold: true, size: 11, color: { argb: 'FFB45309' }, name: 'Calibri' };
 		totalRow.getCell('I').alignment = { horizontal: 'right' };
 
-		for (let c = 2; c <= 12; c++) {
+		for (let c = 2; c <= 11; c++) {
 			const cell = totalRow.getCell(c);
 			cell.fill = {
 				type: 'pattern',
@@ -263,7 +264,6 @@ export const GET: RequestHandler = async ({ url }) => {
 			ket,
 			'Rp. ' + Math.round(amt).toLocaleString('id-ID'),
 			'Rp. ' + Math.round(pendAmt).toLocaleString('id-ID'),
-			d.pending_source_fund || 'Tunai',
 			d.pending_payment_date || d.invoice_date
 		];
 	});
@@ -272,7 +272,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		{ content: 'TOTAL PENGAJUAN MENUNGGU ACC ATASAN', colSpan: 6, styles: { fontStyle: 'bold', fillColor: [254, 243, 199], textColor: [146, 64, 14] } },
 		{ content: 'Rp. ' + Math.round(totalBon).toLocaleString('id-ID'), styles: { fontStyle: 'bold', halign: 'right', fillColor: [254, 243, 199] } },
 		{ content: 'Rp. ' + Math.round(totalPengajuan).toLocaleString('id-ID'), styles: { fontStyle: 'bold', halign: 'right', textColor: [180, 83, 9], fillColor: [254, 243, 199] } },
-		{ content: '', colSpan: 2, styles: { fillColor: [254, 243, 199] } }
+		{ content: '', styles: { fillColor: [254, 243, 199] } }
 	]);
 
 	autoTable(doc, {
@@ -281,13 +281,12 @@ export const GET: RequestHandler = async ({ url }) => {
 			'NO',
 			'SUPPLIER / PIHAK',
 			'TIPE',
-			'NO. BON',
-			'TGL BON',
+			'NO. NOTA / BON',
+			'TGL NOTA / BON',
 			'KETERANGAN / KEPERLUAN',
 			'TOTAL BON',
 			'NOMINAL DIAJUKAN',
-			'SUMBER',
-			'RENCANA BAYAR'
+			'TGL PENGAJUAN'
 		]],
 		body: tableBody,
 		theme: 'grid',
@@ -307,15 +306,14 @@ export const GET: RequestHandler = async ({ url }) => {
 		},
 		columnStyles: {
 			0: { cellWidth: 10, halign: 'center' },
-			1: { cellWidth: 42, fontStyle: 'bold' },
-			2: { cellWidth: 20, halign: 'center' },
-			3: { cellWidth: 24, halign: 'center' },
-			4: { cellWidth: 20, halign: 'center' },
+			1: { cellWidth: 44, fontStyle: 'bold' },
+			2: { cellWidth: 22, halign: 'center' },
+			3: { cellWidth: 25, halign: 'center' },
+			4: { cellWidth: 22, halign: 'center' },
 			5: { cellWidth: 'auto' },
-			6: { cellWidth: 28, halign: 'right' },
-			7: { cellWidth: 32, halign: 'right', fontStyle: 'bold' },
-			8: { cellWidth: 18, halign: 'center' },
-			9: { cellWidth: 22, halign: 'center' }
+			6: { cellWidth: 30, halign: 'right' },
+			7: { cellWidth: 34, halign: 'right', fontStyle: 'bold' },
+			8: { cellWidth: 24, halign: 'center' }
 		}
 	});
 
@@ -328,4 +326,3 @@ export const GET: RequestHandler = async ({ url }) => {
 		}
 	});
 };
-

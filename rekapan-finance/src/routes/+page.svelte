@@ -10,10 +10,15 @@
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	// Halaman aktif sidebar: 'debts' | 'pending_approval' | 'history' | 'balance'
-	let page = $state<"debts" | "pending_approval" | "history" | "balance">("debts");
+	let page = $state<"debts" | "pending_approval" | "history" | "balance">(
+		"debts",
+	);
 
-	// Pengecekan peran Atasan (Pak Denny)
-	let isBoss = $derived(data.currentUser?.role === "boss" || data.currentUser?.username === "denny2026");
+	// Pengecekan peran Atasan (Boss)
+	let isBoss = $derived(
+		data.currentUser?.role === "boss"
+
+	);
 
 	// Filter aging di halaman debts
 	let agingFilter = $state<
@@ -54,44 +59,106 @@
 	let rejectTargetDebt = $state<Debt | null>(null);
 	let rejectReason = $state("");
 
+	function getLocalTodayISO(): string {
+		const d = new Date();
+		const yyyy = d.getFullYear();
+		const mm = String(d.getMonth() + 1).padStart(2, "0");
+		const dd = String(d.getDate()).padStart(2, "0");
+		return `${yyyy}-${mm}-${dd}`;
+	}
+
 	let showApproveModal = $state(false);
 	let approveTargetDebt = $state<Debt | null>(null);
+	let isWaApproval = $state(false);
+	let waApproverName = $state("Pak Danny / Pak Carmen");
+	let approvePaymentDate = $state(getLocalTodayISO());
+
+	// Pengaturan Download / Export Per Hari di Menu Sudah Dibayar
+	let exportPaidMode = $state<"daily" | "period">("daily");
+	let exportPaidDate = $state<string>(getLocalTodayISO());
 
 	// Search di tab Menunggu ACC
 	let pendingSearch = $state("");
 	let paidSearch = $state("");
 
 	// State urutan (Sort A-Z / Z-A / Tanggal)
-	let debtSortBy = $state<"date_desc" | "date_asc" | "name_asc" | "name_desc">("date_desc");
-	let paidSortBy = $state<"date_desc" | "date_asc" | "name_asc" | "name_desc">("date_desc");
-	let pendingSortBy = $state<"date_desc" | "date_asc" | "name_asc" | "name_desc">("date_desc");
+	let debtSortBy = $state<
+		"date_desc" | "date_asc" | "name_asc" | "name_desc"
+	>("date_desc");
+	let paidSortBy = $state<
+		| "date_desc"
+		| "date_asc"
+		| "nota_desc"
+		| "nota_asc"
+		| "name_asc"
+		| "name_desc"
+	>("date_desc");
+	let pendingSortBy = $state<
+		"date_desc" | "date_asc" | "name_asc" | "name_desc"
+	>("date_desc");
 
-	function sortDebtItems(list: any[], sortMode: "date_desc" | "date_asc" | "name_asc" | "name_desc") {
+	function sortDebtItems(
+		list: any[],
+		sortMode: string,
+		usePaymentDate: boolean = false,
+	) {
 		return [...list].sort((a, b) => {
+			const dateA = usePaymentDate
+				? a.payment_date || a.invoice_date || ""
+				: a.invoice_date || "";
+			const dateB = usePaymentDate
+				? b.payment_date || b.invoice_date || ""
+				: b.invoice_date || "";
 			if (sortMode === "name_asc") {
-				const cmp = (a.contact_name || "").localeCompare(b.contact_name || "", "id", { sensitivity: "base" });
+				const cmp = (a.contact_name || "").localeCompare(
+					b.contact_name || "",
+					"id",
+					{ sensitivity: "base" },
+				);
 				if (cmp !== 0) return cmp;
-				return (b.invoice_date || "").localeCompare(a.invoice_date || "");
+				return (b.invoice_date || "").localeCompare(
+					a.invoice_date || "",
+				);
 			}
 			if (sortMode === "name_desc") {
-				const cmp = (b.contact_name || "").localeCompare(a.contact_name || "", "id", { sensitivity: "base" });
+				const cmp = (b.contact_name || "").localeCompare(
+					a.contact_name || "",
+					"id",
+					{ sensitivity: "base" },
+				);
 				if (cmp !== 0) return cmp;
-				return (b.invoice_date || "").localeCompare(a.invoice_date || "");
+				return (b.invoice_date || "").localeCompare(
+					a.invoice_date || "",
+				);
+			}
+			if (sortMode === "nota_asc") {
+				const cmp = (a.invoice_date || "").localeCompare(
+					b.invoice_date || "",
+				);
+				if (cmp !== 0) return cmp;
+				return (a.id || 0) - (b.id || 0);
+			}
+			if (sortMode === "nota_desc") {
+				const cmp = (b.invoice_date || "").localeCompare(
+					a.invoice_date || "",
+				);
+				if (cmp !== 0) return cmp;
+				return (b.id || 0) - (a.id || 0);
 			}
 			if (sortMode === "date_asc") {
-				const cmp = (a.invoice_date || "").localeCompare(b.invoice_date || "");
+				const cmp = dateA.localeCompare(dateB);
 				if (cmp !== 0) return cmp;
 				return (a.id || 0) - (b.id || 0);
 			}
 			// default: date_desc (Tanggal Terbaru)
-			const cmp = (b.invoice_date || "").localeCompare(a.invoice_date || "");
+			const cmp = dateB.localeCompare(dateA);
 			if (cmp !== 0) return cmp;
 			return (b.id || 0) - (a.id || 0);
 		});
 	}
 
 	// Form Saldo Harian
-	let balanceDate = $state(new Date().toISOString().split("T")[0]);
+	let balanceDate = $state(getLocalTodayISO());
 	let balanceAmount = $state("");
 	let balanceNotes = $state("");
 
@@ -220,7 +287,6 @@
 		payAmountFormatted = formatRupiahString(target.value);
 	}
 
-	
 	let directPaymentAmount = $state("");
 	let directPaymentModalAmount = $state("");
 	let showDirectModal = $state(false);
@@ -277,8 +343,9 @@
 	function openEdit(d: any) {
 		editDebtTarget = d;
 		editContactName = d.contact_name || "";
-		editContactType = (d.contact_type === "non_vendor" ? "non_vendor" : "supplier");
-		editInvoiceNo = d.invoice_no === "Tanpa Bon" ? "" : (d.invoice_no || "");
+		editContactType =
+			d.contact_type === "non_vendor" ? "non_vendor" : "supplier";
+		editInvoiceNo = d.invoice_no === "Tanpa Bon" ? "" : d.invoice_no || "";
 		editInvoiceDate = d.invoice_date || "";
 		editHasDue = !!d.due_date;
 		editDueDate = d.due_date || "";
@@ -320,13 +387,15 @@
 
 	// ================= FILTER BULAN / TAHUN / TANGGAL & 2 PT MULTI-COMPANY =================
 	let timeFilterMode = $state<"all" | "month" | "range" | "date">("month");
-	let activePreset = $state<"this_month" | "last_month" | "this_year" | "today" | "all" | "custom">("this_month");
+	let activePreset = $state<
+		"this_month" | "last_month" | "this_year" | "today" | "all" | "custom"
+	>("this_month");
 	let showCustomPicker = $state<boolean>(false);
 
 	const todayObj = new Date();
 	let currentCalMonth = todayObj.getMonth() + 1;
 	let currentCalYear = todayObj.getFullYear();
-	let todayISODate = todayObj.toISOString().split("T")[0];
+	let todayISODate = getLocalTodayISO();
 
 	let filterMonth = $state<number | "all">(currentCalMonth);
 	let filterYear = $state<number | "all">(currentCalYear);
@@ -335,7 +404,7 @@
 	let filterSpecificDate = $state<string>("");
 
 	// Active Company Code dari navbar
-	let currentCompanyCode = $derived(data.currentCompany?.code || 'ART');
+	let currentCompanyCode = $derived(data.currentCompany?.code || "ART");
 
 	const monthList = [
 		{ val: 1, name: "Januari" },
@@ -349,19 +418,24 @@
 		{ val: 9, name: "September" },
 		{ val: 10, name: "Oktober" },
 		{ val: 11, name: "November" },
-		{ val: 12, name: "Desember" }
+		{ val: 12, name: "Desember" },
 	];
 
 	let yearList = $derived.by(() => {
 		const baseYear = currentCalYear;
-		const setY = new Set<number>([baseYear - 2, baseYear - 1, baseYear, baseYear + 1]);
-		for (const d of (data.allActiveDebts || data.activeDebts || [])) {
+		const setY = new Set<number>([
+			baseYear - 2,
+			baseYear - 1,
+			baseYear,
+			baseYear + 1,
+		]);
+		for (const d of data.allActiveDebts || data.activeDebts || []) {
 			if (d.invoice_date) {
 				const y = parseInt(d.invoice_date.split("-")[0], 10);
 				if (!isNaN(y)) setY.add(y);
 			}
 		}
-		for (const d of (data.allPaidDebts || data.paidDebts || [])) {
+		for (const d of data.allPaidDebts || data.paidDebts || []) {
 			if (d.invoice_date) {
 				const y = parseInt(d.invoice_date.split("-")[0], 10);
 				if (!isNaN(y)) setY.add(y);
@@ -370,7 +444,15 @@
 		return Array.from(setY).sort((a, b) => b - a);
 	});
 
-	function applyPreset(preset: "all" | "this_month" | "last_month" | "this_year" | "today" | "custom") {
+	function applyPreset(
+		preset:
+			| "all"
+			| "this_month"
+			| "last_month"
+			| "this_year"
+			| "today"
+			| "custom",
+	) {
 		activePreset = preset;
 		if (preset === "all") {
 			timeFilterMode = "all";
@@ -389,7 +471,10 @@
 			timeFilterMode = "month";
 			let lm = currentCalMonth - 1;
 			let ly = currentCalYear;
-			if (lm < 1) { lm = 12; ly -= 1; }
+			if (lm < 1) {
+				lm = 12;
+				ly -= 1;
+			}
 			filterMonth = lm;
 			filterYear = ly;
 			showCustomPicker = false;
@@ -401,6 +486,8 @@
 		} else if (preset === "today") {
 			timeFilterMode = "date";
 			filterSpecificDate = todayISODate;
+			exportPaidDate = todayISODate;
+			exportPaidMode = "daily";
 			showCustomPicker = false;
 		} else if (preset === "custom") {
 			showCustomPicker = !showCustomPicker;
@@ -435,15 +522,21 @@
 	let activePeriodLabel = $derived.by(() => {
 		if (timeFilterMode === "all") return "Semua Waktu (Seluruh Periode)";
 		if (timeFilterMode === "month") {
-			const mName = filterMonth === "all" ? "Semua Bulan" : monthList.find(x => x.val === filterMonth)?.name;
+			const mName =
+				filterMonth === "all"
+					? "Semua Bulan"
+					: monthList.find((x) => x.val === filterMonth)?.name;
 			const yName = filterYear === "all" ? "Semua Tahun" : filterYear;
 			return `${mName} ${yName}`;
 		}
 		if (timeFilterMode === "date") {
-			return filterSpecificDate ? `Tanggal: ${filterSpecificDate}` : "Semua Tanggal";
+			return filterSpecificDate
+				? `Tanggal: ${filterSpecificDate}`
+				: "Semua Tanggal";
 		}
 		if (timeFilterMode === "range") {
-			if (filterStartDate && filterEndDate) return `${filterStartDate} s/d ${filterEndDate}`;
+			if (filterStartDate && filterEndDate)
+				return `${filterStartDate} s/d ${filterEndDate}`;
 			if (filterStartDate) return `Mulai ${filterStartDate}`;
 			if (filterEndDate) return `Sampai ${filterEndDate}`;
 			return "Rentang Tanggal";
@@ -456,45 +549,63 @@
 		(data.allActiveDebts || data.activeDebts || [])
 			.map((d: any) => ({
 				...d,
-				company_code: d.company_code || (data.companies?.find((c: any) => c.id === d.company_id)?.code || 'ART')
+				company_code:
+					d.company_code ||
+					data.companies?.find((c: any) => c.id === d.company_id)
+						?.code ||
+					"ART",
 			}))
-			.filter((d: any) => d.company_code === currentCompanyCode)
+			.filter((d: any) => d.company_code === currentCompanyCode),
 	);
 
 	let debtsTimeFiltered = $derived(
-		sourceAllActiveDebts.filter((d: Debt) => matchesDateFilter(d.invoice_date))
+		sourceAllActiveDebts.filter((d: Debt) =>
+			matchesDateFilter(d.invoice_date),
+		),
 	);
 
 	let filteredDebts = $derived(
 		sortDebtItems(
 			debtsTimeFiltered.filter((d: Debt) => {
-				if (agingFilter !== "all" && d.aging_bucket !== agingFilter) return false;
+				if (agingFilter !== "all" && d.aging_bucket !== agingFilter)
+					return false;
 				if (search.trim()) {
 					const q = search.toLowerCase();
 					return (
 						d.contact_name.toLowerCase().includes(q) ||
-					d.description.toLowerCase().includes(q) ||
+						d.description.toLowerCase().includes(q) ||
 						(d.invoice_no || "").toLowerCase().includes(q)
 					);
 				}
 				return true;
 			}) || [],
-			debtSortBy
-		)
+			debtSortBy,
+		),
 	);
 
 	let summaryDebtsCurrent = $derived.by(() => {
-		const totalRemaining = debtsTimeFiltered.reduce((sum: number, d: Debt) => sum + d.remaining_amount, 0);
+		const totalRemaining = debtsTimeFiltered.reduce(
+			(sum: number, d: Debt) => sum + d.remaining_amount,
+			0,
+		);
 		return { count: debtsTimeFiltered.length, totalRemaining };
 	});
 
 	let activeAgingBuckets = $derived.by(() => {
-		const b = { b0_30: 0, b31_60: 0, b61_90: 0, b91_120: 0, b_over120: 0, total: 0 };
+		const b = {
+			b0_30: 0,
+			b31_60: 0,
+			b61_90: 0,
+			b91_120: 0,
+			b_over120: 0,
+			total: 0,
+		};
 		for (const d of debtsTimeFiltered) {
-			if (d.aging_bucket === '0-30') b.b0_30 += d.remaining_amount;
-			else if (d.aging_bucket === '31-60') b.b31_60 += d.remaining_amount;
-			else if (d.aging_bucket === '61-90') b.b61_90 += d.remaining_amount;
-			else if (d.aging_bucket === '91-120') b.b91_120 += d.remaining_amount;
+			if (d.aging_bucket === "0-30") b.b0_30 += d.remaining_amount;
+			else if (d.aging_bucket === "31-60") b.b31_60 += d.remaining_amount;
+			else if (d.aging_bucket === "61-90") b.b61_90 += d.remaining_amount;
+			else if (d.aging_bucket === "91-120")
+				b.b91_120 += d.remaining_amount;
 			else b.b_over120 += d.remaining_amount;
 			b.total += d.remaining_amount;
 		}
@@ -506,17 +617,27 @@
 		(data.allPendingDebts || data.pendingDebts || [])
 			.map((d: any) => ({
 				...d,
-				company_code: d.company_code || (data.companies?.find((c: any) => c.id === d.company_id)?.code || 'ART')
+				company_code:
+					d.company_code ||
+					data.companies?.find((c: any) => c.id === d.company_id)
+						?.code ||
+					"ART",
 			}))
-			.filter((d: any) => d.company_code === currentCompanyCode)
+			.filter((d: any) => d.company_code === currentCompanyCode),
 	);
 
 	let pendingTimeFiltered = $derived(
-		sourceAllPendingDebts.filter((d: Debt) => matchesDateFilter(d.pending_payment_date || d.invoice_date))
+		sourceAllPendingDebts.filter((d: Debt) =>
+			matchesDateFilter(d.pending_payment_date || d.invoice_date),
+		),
 	);
 
 	let summaryPendingCurrent = $derived.by(() => {
-		const totalPending = pendingTimeFiltered.reduce((sum: number, d: Debt) => sum + (d.pending_amount || d.remaining_amount), 0);
+		const totalPending = pendingTimeFiltered.reduce(
+			(sum: number, d: Debt) =>
+				sum + (d.pending_amount || d.remaining_amount),
+			0,
+		);
 		return { count: pendingTimeFiltered.length, totalPending };
 	});
 
@@ -534,11 +655,11 @@
 				}
 				return true;
 			}),
-			pendingSortBy
-		)
+			pendingSortBy,
+		),
 	);
 
-	// Helper Persetujuan & WhatsApp Reminder ke Atasan (Pak Denny)
+	// Helper Persetujuan & WhatsApp Reminder ke Atasan (Pak Danny)
 	function openRejectModal(d: Debt) {
 		rejectTargetDebt = d;
 		rejectReason = "";
@@ -551,62 +672,93 @@
 		rejectReason = "";
 	}
 
-	function openApproveModal(d: Debt) {
+	function openApproveModal(d: Debt, viaWa: boolean = false) {
 		approveTargetDebt = d;
+		isWaApproval = viaWa;
+		waApproverName = "Pak Danny / Pak Carmen";
+		approvePaymentDate = getLocalTodayISO();
 		showApproveModal = true;
 	}
 
 	function closeApproveModal() {
 		showApproveModal = false;
 		approveTargetDebt = null;
+		isWaApproval = false;
 	}
 
 	function sendWhatsAppReminder(d: Debt) {
-		const compName = d.company_name || data.currentCompany?.name || 'PT Anugerah Rezeki Teknindo';
-		const compCode = d.company_code || data.currentCompany?.code || 'ART';
+		const compName =
+			d.company_name ||
+			data.currentCompany?.name ||
+			"PT Anugerah Rezeki Teknindo";
+		const compCode = d.company_code || data.currentCompany?.code || "ART";
 		const nominal = rp(d.pending_amount || d.remaining_amount);
-		const tgl = d.pending_payment_date || new Date().toISOString().split('T')[0];
-		const pengaju = d.pending_by || data.currentUser?.name || 'Petugas Keuangan';
-		const catatan = d.pending_notes ? `\n- *Catatan/Pesan*: ${d.pending_notes}` : '';
+		const tgl = d.pending_payment_date || todayISODate;
+		const pengaju =
+			d.pending_by || data.currentUser?.name || "Petugas Keuangan";
+		const catatan = d.pending_notes
+			? `\n- *Catatan/Pesan*: ${d.pending_notes}`
+			: "";
 
 		const msg = `*PENGINGAT PERSETUJUAN (ACC) PEMBAYARAN* 🔔
-Halo Pak Denny, mohon persetujuan (ACC) pembayaran tagihan berikut:
+Halo Pak, mohon persetujuan (ACC) pembayaran tagihan berikut:
 - *Perusahaan*: ${compCode} (${compName})
 - *Supplier / Toko*: ${d.contact_name}
-- *No. Bon / Faktur*: ${d.invoice_no || '-'}
+- *No. Bon / Faktur*: ${d.invoice_no || "-"}
 - *Nominal Pengajuan*: ${nominal}
 - *Rencana Tgl Bayar*: ${tgl}
 - *Diajukan Oleh*: ${pengaju}${catatan}
 
 Mohon dapat di-ACC melalui program Rekapan Keuangan. Terima kasih!`;
 
-		window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
-		notify('info', 'Notifikasi WhatsApp Dibuka! 📱', 'Pesan pengingat untuk Pak Denny telah disiapkan.');
+		window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank");
+		notify(
+			"info",
+			"Notifikasi WhatsApp Dibuka! 📱",
+			"Pesan pengingat untuk Pak Danny/Pak Carmen telah disiapkan.",
+		);
 	}
 
 	function sendAllPendingWhatsAppReminder() {
-		const list = filteredPendingDebts.length > 0 ? filteredPendingDebts : (data.pendingDebts || []);
+		const list =
+			filteredPendingDebts.length > 0
+				? filteredPendingDebts
+				: data.pendingDebts || [];
 		if (list.length === 0) {
-			notify('info', 'Tidak Ada Antrean', 'Tidak ada tagihan yang sedang menunggu ACC saat ini.');
+			notify(
+				"info",
+				"Tidak Ada Antrean",
+				"Tidak ada tagihan yang sedang menunggu ACC saat ini.",
+			);
 			return;
 		}
 
-		const compCode = data.currentCompany?.code || 'ART';
-		const totalNominal = list.reduce((sum: number, d: Debt) => sum + (d.pending_amount || d.remaining_amount), 0);
-		const textItems = list.map((d: Debt, i: number) => {
-			const nom = rp(d.pending_amount || d.remaining_amount);
-			return `${i + 1}. *${d.contact_name}*: ${nom} (${d.description})`;
-		}).join('\n');
+		const compCode = data.currentCompany?.code || "ART";
+		const totalNominal = list.reduce(
+			(sum: number, d: Debt) =>
+				sum + (d.pending_amount || d.remaining_amount),
+			0,
+		);
+		const textItems = list
+			.map((d: Debt, i: number) => {
+				const nom = rp(d.pending_amount || d.remaining_amount);
+				return `${i + 1}. *${d.contact_name}*: ${nom} (${d.description})`;
+			})
+			.join("\n");
 
 		const msg = `*REKAPAN ANTREAN MENUNGGU ACC ATASAN* 🔔
-Halo Pak Denny, terdapat *${list.length} tagihan* yang sedang menunggu persetujuan (ACC) pembayaran Anda dengan total nominal *${rp(totalNominal)}* (${compCode}):
+Halo Pak Danny/Pak Carmen, terdapat *${list.length} tagihan* yang sedang menunggu persetujuan (ACC) pembayaran Anda dengan total nominal *${rp(totalNominal)}* (${compCode}):
 
 ${textItems}
 
 Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasih!`;
 
-		window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
-		notify('info', 'Notifikasi WhatsApp Siap Dikirim! 📱', 'Pesan ringkasan antrean telah dibuat untuk Pak Denny.');
+		window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank");
+		notify(
+			"info",
+			"Notifikasi WhatsApp Siap Dikirim! 📱",
+			"Pesan ringkasan antrean telah dibuat untuk Pak Danny/Pak Carmen.",
+		);
 	}
 
 	// ---- 3. Menu Sudah Dibayar / Lunas (Khusus PT Aktif dari Navbar) ----
@@ -614,17 +766,26 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 		(data.allPaidDebts || data.paidDebts || [])
 			.map((d: any) => ({
 				...d,
-				company_code: d.company_code || (data.companies?.find((c: any) => c.id === d.company_id)?.code || 'ART')
+				company_code:
+					d.company_code ||
+					data.companies?.find((c: any) => c.id === d.company_id)
+						?.code ||
+					"ART",
 			}))
-			.filter((d: any) => d.company_code === currentCompanyCode)
+			.filter((d: any) => d.company_code === currentCompanyCode),
 	);
 
 	let paidTimeFiltered = $derived(
-		sourceAllPaidDebts.filter((d: any) => matchesDateFilter(d.invoice_date))
+		sourceAllPaidDebts.filter((d: any) =>
+			matchesDateFilter(d.payment_date || d.invoice_date),
+		),
 	);
 
 	let summaryPaidCurrent = $derived.by(() => {
-		const totalPaid = paidTimeFiltered.reduce((sum: number, d: any) => sum + (d.paid_amount || d.amount || 0), 0);
+		const totalPaid = paidTimeFiltered.reduce(
+			(sum: number, d: any) => sum + (d.paid_amount || d.amount || 0),
+			0,
+		);
 		return { count: paidTimeFiltered.length, totalPaid };
 	});
 
@@ -641,12 +802,33 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 				}
 				return true;
 			}),
-			paidSortBy
-		)
+			paidSortBy,
+			true,
+		),
 	);
 
+	let exportPembayaranQuery = $derived.by(() => {
+		const pt = data.currentCompany?.code || "ART";
+		if (exportPaidMode === "daily" && exportPaidDate) {
+			return `pt=${pt}&date=${exportPaidDate}`;
+		}
+		if (timeFilterMode === "date" && filterSpecificDate) {
+			return `pt=${pt}&date=${filterSpecificDate}`;
+		}
+		if (timeFilterMode === "range") {
+			return `pt=${pt}&start=${filterStartDate}&end=${filterEndDate}`;
+		}
+		if (timeFilterMode === "month") {
+			return `pt=${pt}&month=${filterMonth}&year=${filterYear}`;
+		}
+		return `pt=${pt}`;
+	});
+
 	let summaryFilteredPaid = $derived.by(() => {
-		const total = filteredPaidDebts.reduce((sum: number, d: any) => sum + (d.paid_amount || d.amount || 0), 0);
+		const total = filteredPaidDebts.reduce(
+			(sum: number, d: any) => sum + (d.paid_amount || d.amount || 0),
+			0,
+		);
 		return { count: filteredPaidDebts.length, total };
 	});
 
@@ -655,22 +837,30 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 		(data.allDailyBalances || data.dailyBalances || [])
 			.map((b: any) => ({
 				...b,
-				company_code: b.company_code || (data.companies?.find((c: any) => c.id === b.company_id)?.code || 'ART')
+				company_code:
+					b.company_code ||
+					data.companies?.find((c: any) => c.id === b.company_id)
+						?.code ||
+					"ART",
 			}))
-			.filter((b: any) => b.company_code === currentCompanyCode)
+			.filter((b: any) => b.company_code === currentCompanyCode),
 	);
 
 	let balancesTimeFiltered = $derived(
-		sourceAllDailyBalances.filter((b: any) => matchesDateFilter(b.balance_date))
+		sourceAllDailyBalances.filter((b: any) =>
+			matchesDateFilter(b.balance_date),
+		),
 	);
 
 	let summaryBalanceCurrent = $derived.by(() => {
-		const latestBal = balancesTimeFiltered.length > 0 ? balancesTimeFiltered[0].balance_amount : null;
+		const latestBal =
+			balancesTimeFiltered.length > 0
+				? balancesTimeFiltered[0].balance_amount
+				: null;
 		return { count: balancesTimeFiltered.length, latestBalance: latestBal };
 	});
 
 	let filteredDailyBalances = $derived(balancesTimeFiltered);
-
 </script>
 
 <div class="layout">
@@ -726,7 +916,10 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					<span>Menunggu ACC</span>
 				</div>
 				{#if (data.pendingDebts?.length || 0) > 0}
-					<span class="nav-count" style="background:#f59e0b; color:#ffffff; font-weight:700; box-shadow:0 0 8px rgba(245,158,11,0.5);">
+					<span
+						class="nav-count"
+						style="background:#f59e0b; color:#ffffff; font-weight:700; box-shadow:0 0 8px rgba(245,158,11,0.5);"
+					>
 						{data.pendingDebts?.length || 0}
 					</span>
 				{:else}
@@ -783,9 +976,16 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 				<div
 					style="font-size:0.7rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; justify-content:space-between;"
 				>
-					<span>{isBoss ? "Atasan / Direksi:" : "Petugas Keuangan:"}</span>
+					<span
+						>{isBoss
+							? "Atasan / Direksi:"
+							: "Petugas Keuangan:"}</span
+					>
 					{#if isBoss}
-						<span style="font-size:0.65rem; font-weight:700; background:#6366f1; color:#fff; padding:0.05rem 0.35rem; border-radius:4px;">ACC</span>
+						<span
+							style="font-size:0.65rem; font-weight:700; background:#6366f1; color:#fff; padding:0.05rem 0.35rem; border-radius:4px;"
+							>ACC</span
+						>
 					{/if}
 				</div>
 				<div
@@ -793,7 +993,11 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 				>
 					{data.currentUser?.name || "Admin Rekapan"}
 				</div>
-				<div style="font-size:0.7rem; color:{isBoss ? '#818cf8' : '#f472b6'};">
+				<div
+					style="font-size:0.7rem; color:{isBoss
+						? '#818cf8'
+						: '#f472b6'};"
+				>
 					@{data.currentUser?.username || "admin_rekapan"}
 				</div>
 			</div>
@@ -827,9 +1031,12 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							?.name}
 					</div>
 				{:else if page === "pending_approval"}
-					<div class="page-title">Menunggu Persetujuan Atasan (ACC)</div>
+					<div class="page-title">
+						Menunggu Persetujuan Atasan (ACC)
+					</div>
 					<div class="page-desc">
-						Daftar tagihan yang diajukan untuk dibayar dan menunggu persetujuan dari Pak Denny — {data.currentCompany?.name}
+						Daftar tagihan yang diajukan untuk dibayar dan menunggu
+						persetujuan dari Pak Danny — {data.currentCompany?.name}
 					</div>
 				{:else if page === "history"}
 					<div class="page-title">Sudah Dibayar / Lunas</div>
@@ -877,7 +1084,8 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					<button
 						type="button"
 						class="btn-bell"
-						class:has-urgent={totalUrgentCount > 0 || (data.pendingDebts?.length || 0) > 0}
+						class:has-urgent={totalUrgentCount > 0 ||
+							(data.pendingDebts?.length || 0) > 0}
 						onclick={() => (showNotifDropdown = !showNotifDropdown)}
 						title="Pusat Notifikasi: Antrean ACC & Jatuh Tempo"
 					>
@@ -885,11 +1093,15 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						{#if (data.pendingDebts?.length || 0) > 0 || totalUrgentCount > 0}
 							<span
 								class="bell-badge"
-								style={(data.pendingDebts?.length || 0) > 0 ? "background:#f59e0b; color:#ffffff;" : ""}
+								style={(data.pendingDebts?.length || 0) > 0
+									? "background:#f59e0b; color:#ffffff;"
+									: ""}
 								class:danger={overdueList.length > 0}
-								class:warning={overdueList.length === 0 && h5List.length > 0}
+								class:warning={overdueList.length === 0 &&
+									h5List.length > 0}
 							>
-								{(data.pendingDebts?.length || 0) + totalUrgentCount}
+								{(data.pendingDebts?.length || 0) +
+									totalUrgentCount}
 							</span>
 						{/if}
 					</button>
@@ -901,8 +1113,8 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 								<div
 									style="font-weight:700; font-size:0.9rem; color:#0f172a;"
 								>
-									🔔 Pusat Notifikasi ({data
-										.currentCompany?.code})
+									🔔 Pusat Notifikasi ({data.currentCompany
+										?.code})
 								</div>
 								<button
 									type="button"
@@ -948,8 +1160,15 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							<div class="notif-drop-body">
 								<!-- SEKSI ANTREAN MENUNGGU ACC ATASAN -->
 								{#if (data.pendingDebts?.length || 0) > 0}
-									<div class="notif-section-title" style="background:#fffbeb; color:#b45309; border-left:3px solid #f59e0b; padding:0.4rem 0.6rem; border-radius:4px; margin-bottom:0.6rem; display:flex; justify-content:space-between; align-items:center;">
-										<span>⏳ MENUNGGU ACC ATASAN ({(data.pendingDebts?.length || 0)})</span>
+									<div
+										class="notif-section-title"
+										style="background:#fffbeb; color:#b45309; border-left:3px solid #f59e0b; padding:0.4rem 0.6rem; border-radius:4px; margin-bottom:0.6rem; display:flex; justify-content:space-between; align-items:center;"
+									>
+										<span
+											>⏳ MENUNGGU ACC ATASAN ({data
+												.pendingDebts?.length ||
+												0})</span
+										>
 										<button
 											type="button"
 											style="background:none; border:none; color:#2563eb; font-size:0.72rem; cursor:pointer; text-decoration:underline;"
@@ -963,21 +1182,47 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 									</div>
 
 									{#each (data.pendingDebts || []).slice(0, 5) as d}
-										<div class="notif-item" style="border-left:3px solid #f59e0b; background:#fffdf5; padding:0.6rem 0.75rem; border-radius:8px; margin-bottom:0.5rem; box-shadow:0 1px 3px rgba(0,0,0,0.03);">
-											<div class="notif-item-top" style="display:flex; justify-content:space-between; align-items:center;">
-												<strong style="color:#0f172a; font-size:0.85rem;">{d.contact_name}</strong>
-												<span style="font-size:0.7rem; background:#fef3c7; color:#92400e; padding:0.15rem 0.45rem; border-radius:4px; font-weight:700;">
+										<div
+											class="notif-item"
+											style="border-left:3px solid #f59e0b; background:#fffdf5; padding:0.6rem 0.75rem; border-radius:8px; margin-bottom:0.5rem; box-shadow:0 1px 3px rgba(0,0,0,0.03);"
+										>
+											<div
+												class="notif-item-top"
+												style="display:flex; justify-content:space-between; align-items:center;"
+											>
+												<strong
+													style="color:#0f172a; font-size:0.85rem;"
+													>{d.contact_name}</strong
+												>
+												<span
+													style="font-size:0.7rem; background:#fef3c7; color:#92400e; padding:0.15rem 0.45rem; border-radius:4px; font-weight:700;"
+												>
 													Menunggu ACC
 												</span>
 											</div>
-											<div class="notif-item-desc" style="font-size:0.75rem; color:#64748b; margin:0.25rem 0;">
-												{d.description} • Diajukan: {d.pending_by || 'Petugas'}
+											<div
+												class="notif-item-desc"
+												style="font-size:0.75rem; color:#64748b; margin:0.25rem 0;"
+											>
+												{d.description} • Diajukan: {d.pending_by ||
+													"Petugas"}
 											</div>
-											<div class="notif-item-foot" style="display:flex; justify-content:space-between; align-items:center; margin-top:0.4rem;">
-												<span class="notif-amount" style="font-weight:700; color:#b45309; font-size:0.88rem;">
-													{rp(d.pending_amount || d.remaining_amount)}
+											<div
+												class="notif-item-foot"
+												style="display:flex; justify-content:space-between; align-items:center; margin-top:0.4rem;"
+											>
+												<span
+													class="notif-amount"
+													style="font-weight:700; color:#b45309; font-size:0.88rem;"
+												>
+													{rp(
+														d.pending_amount ||
+															d.remaining_amount,
+													)}
 												</span>
-												<div style="display:flex; gap:0.35rem;">
+												<div
+													style="display:flex; gap:0.35rem;"
+												>
 													{#if isBoss}
 														<button
 															type="button"
@@ -985,7 +1230,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 															style="background:#10b981; font-size:0.72rem; padding:0.25rem 0.55rem;"
 															onclick={() => {
 																showNotifDropdown = false;
-																openApproveModal(d);
+																openApproveModal(
+																	d,
+																);
 															}}
 														>
 															✅ ACC
@@ -994,9 +1241,27 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 														<button
 															type="button"
 															class="btn-pay-quick"
+															style="background:#059669; font-size:0.72rem; padding:0.25rem 0.55rem;"
+															onclick={() => {
+																showNotifDropdown = false;
+																openApproveModal(
+																	d,
+																	true,
+																);
+															}}
+															title="Langsung ACC jika sudah dikonfirmasi Bos lewat WhatsApp"
+														>
+															✅ ACC WA
+														</button>
+														<button
+															type="button"
+															class="btn-pay-quick"
 															style="background:#25d366; font-size:0.72rem; padding:0.25rem 0.55rem;"
-															onclick={() => sendWhatsAppReminder(d)}
-															title="Kirim pengingat WhatsApp ke Pak Denny"
+															onclick={() =>
+																sendWhatsAppReminder(
+																	d,
+																)}
+															title="Kirim pengingat WhatsApp ke Pak Danny/Pak Carmen"
 														>
 															📱 WA Bos
 														</button>
@@ -1006,14 +1271,19 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 										</div>
 									{/each}
 
-									<div style="margin-bottom:0.85rem; padding-bottom:0.6rem; border-bottom:1px dashed #e2e8f0; display:flex; gap:0.4rem;">
+									<div
+										style="margin-bottom:0.85rem; padding-bottom:0.6rem; border-bottom:1px dashed #e2e8f0; display:flex; gap:0.4rem;"
+									>
 										<button
 											type="button"
 											style="flex:1; background:#25d366; color:#fff; border:none; border-radius:6px; padding:0.45rem; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.3rem;"
 											onclick={sendAllPendingWhatsAppReminder}
 										>
 											<span>📱</span>
-											<span>Kirim WA Antrean ke Pak Denny</span>
+											<span
+												>Kirim Pesan Whatsapp Ke Pak
+												Danny/Pak Carmen</span
+											>
 										</button>
 									</div>
 								{/if}
@@ -1143,9 +1413,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						class="btn-primary"
 						style="background: linear-gradient(135deg, #25d366 0%, #128c7e 100%); box-shadow: 0 2px 10px rgba(37, 211, 102, 0.35);"
 						onclick={sendAllPendingWhatsAppReminder}
-						title="Kirim notifikasi WhatsApp ringkasan daftar antrean ACC ke Pak Denny"
+						title="Kirim notifikasi WhatsApp ringkasan daftar antrean ACC ke Pak Danny/Pak Carmen"
 					>
-						📱 Kirim Notifikasi WA ke Pak Denny
+						📱 Kirim Notifikasi WA ke Pak Danny/Pak Carmen
 					</button>
 				{:else if page === "history"}
 					<button
@@ -1153,10 +1423,14 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						class="btn-primary"
 						style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); box-shadow: 0 2px 10px rgba(16, 185, 129, 0.35);"
 						onclick={() => {
-							const el = document.getElementById('form-pengeluaran-langsung');
+							const el = document.getElementById(
+								"form-pengeluaran-langsung",
+							);
 							if (el) {
-								el.scrollIntoView({ behavior: 'smooth' });
-								const input = document.getElementById('input-direct-recipient');
+								el.scrollIntoView({ behavior: "smooth" });
+								const input = document.getElementById(
+									"input-direct-recipient",
+								);
 								if (input) input.focus();
 							} else {
 								openDirectModal();
@@ -1167,14 +1441,20 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						💸 + Pengeluaran Langsung (Tanpa Bon)
 					</button>
 				{:else if page === "balance"}
-					<button class="btn-primary" onclick={() => {
-						const el = document.getElementById('form-saldo');
-						if (el) {
-							el.scrollIntoView({ behavior: 'smooth' });
-							const input = document.getElementById('input-saldo-amount');
-							if (input) input.focus();
-						}
-					}}>
+					<button
+						class="btn-primary"
+						onclick={() => {
+							const el = document.getElementById("form-saldo");
+							if (el) {
+								el.scrollIntoView({ behavior: "smooth" });
+								const input =
+									document.getElementById(
+										"input-saldo-amount",
+									);
+								if (input) input.focus();
+							}
+						}}
+					>
 						✍️ + Input / Perbarui Sisa Saldo
 					</button>
 				{/if}
@@ -1195,13 +1475,25 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					<div class="filter-header-left">
 						<span class="modern-filter-icon">🗓️</span>
 						<div class="modern-filter-meta">
-							<div class="filter-main-title">Filter Periode &amp; Tanggal Transaksi</div>
+							<div class="filter-main-title">
+								Filter Periode &amp; Tanggal Transaksi
+							</div>
 							<div class="filter-status-row">
-								<span class="period-status-label">Periode Terpilih:</span>
-								<span class="badge-active-period">{activePeriodLabel}</span>
+								<span class="period-status-label"
+									>Periode Terpilih:</span
+								>
+								<span class="badge-active-period"
+									>{activePeriodLabel}</span
+								>
 								<span class="meta-separator">&bull;</span>
-								<span class="badge-pt-pill {currentCompanyCode === 'ART' ? 'art' : 'knm'}">
-									PT {data.currentCompany?.code} ({data.currentCompany?.name})
+								<span
+									class="badge-pt-pill {currentCompanyCode ===
+									'ART'
+										? 'art'
+										: 'knm'}"
+								>
+									PT {data.currentCompany?.code} ({data
+										.currentCompany?.name})
 								</span>
 							</div>
 						</div>
@@ -1212,8 +1504,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						<button
 							type="button"
 							class="modern-filter-btn"
-							class:active={activePreset === 'this_month' && !showCustomPicker}
-							onclick={() => applyPreset('this_month')}
+							class:active={activePreset === "this_month" &&
+								!showCustomPicker}
+							onclick={() => applyPreset("this_month")}
 						>
 							<span class="btn-emoji">📅</span>
 							<span>Bulan Ini</span>
@@ -1221,8 +1514,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						<button
 							type="button"
 							class="modern-filter-btn"
-							class:active={activePreset === 'last_month' && !showCustomPicker}
-							onclick={() => applyPreset('last_month')}
+							class:active={activePreset === "last_month" &&
+								!showCustomPicker}
+							onclick={() => applyPreset("last_month")}
 						>
 							<span class="btn-emoji">⏪</span>
 							<span>Bulan Lalu</span>
@@ -1230,8 +1524,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						<button
 							type="button"
 							class="modern-filter-btn"
-							class:active={activePreset === 'this_year' && !showCustomPicker}
-							onclick={() => applyPreset('this_year')}
+							class:active={activePreset === "this_year" &&
+								!showCustomPicker}
+							onclick={() => applyPreset("this_year")}
 						>
 							<span class="btn-emoji">🗓️</span>
 							<span>Tahun Ini</span>
@@ -1239,8 +1534,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						<button
 							type="button"
 							class="modern-filter-btn"
-							class:active={activePreset === 'today' && !showCustomPicker}
-							onclick={() => applyPreset('today')}
+							class:active={activePreset === "today" &&
+								!showCustomPicker}
+							onclick={() => applyPreset("today")}
 						>
 							<span class="btn-emoji">📌</span>
 							<span>Hari Ini</span>
@@ -1248,8 +1544,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						<button
 							type="button"
 							class="modern-filter-btn btn-all-filter"
-							class:active={activePreset === 'all' && !showCustomPicker}
-							onclick={() => applyPreset('all')}
+							class:active={activePreset === "all" &&
+								!showCustomPicker}
+							onclick={() => applyPreset("all")}
 						>
 							<span class="btn-emoji">🌐</span>
 							<span>Semua</span>
@@ -1258,12 +1555,14 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							type="button"
 							class="modern-filter-btn btn-custom-filter"
 							class:active={showCustomPicker}
-							onclick={() => applyPreset('custom')}
+							onclick={() => applyPreset("custom")}
 							title="Pilih rentang tanggal atau bulan tertentu"
 						>
 							<span class="btn-emoji">⚙️</span>
 							<span>Kustom</span>
-							<span class="caret-indicator">{showCustomPicker ? '▲' : '▼'}</span>
+							<span class="caret-indicator"
+								>{showCustomPicker ? "▲" : "▼"}</span
+							>
 						</button>
 					</div>
 				</div>
@@ -1275,62 +1574,88 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							<button
 								type="button"
 								class="custom-tab-pill"
-								class:active={timeFilterMode === 'month'}
-								onclick={() => (timeFilterMode = 'month')}
+								class:active={timeFilterMode === "month"}
+								onclick={() => (timeFilterMode = "month")}
 							>
 								📅 Bulan &amp; Tahun
 							</button>
 							<button
 								type="button"
 								class="custom-tab-pill"
-								class:active={timeFilterMode === 'range'}
-								onclick={() => (timeFilterMode = 'range')}
+								class:active={timeFilterMode === "range"}
+								onclick={() => (timeFilterMode = "range")}
 							>
 								📆 Rentang Tanggal
 							</button>
 							<button
 								type="button"
 								class="custom-tab-pill"
-								class:active={timeFilterMode === 'date'}
-								onclick={() => (timeFilterMode = 'date')}
+								class:active={timeFilterMode === "date"}
+								onclick={() => (timeFilterMode = "date")}
 							>
 								📌 Tanggal Tertentu
 							</button>
 						</div>
 
 						<div class="custom-controls-body">
-							{#if timeFilterMode === 'month'}
+							{#if timeFilterMode === "month"}
 								<div class="custom-field-group">
 									<label for="filter-month">Bulan:</label>
-									<select id="filter-month" bind:value={filterMonth} class="custom-select-box">
+									<select
+										id="filter-month"
+										bind:value={filterMonth}
+										class="custom-select-box"
+									>
 										<option value="all">Semua Bulan</option>
 										{#each monthList as m}
-											<option value={m.val}>{m.name}</option>
+											<option value={m.val}
+												>{m.name}</option
+											>
 										{/each}
 									</select>
 								</div>
 								<div class="custom-field-group">
 									<label for="filter-year">Tahun:</label>
-									<select id="filter-year" bind:value={filterYear} class="custom-select-box">
+									<select
+										id="filter-year"
+										bind:value={filterYear}
+										class="custom-select-box"
+									>
 										<option value="all">Semua Tahun</option>
 										{#each yearList as y}
 											<option value={y}>{y}</option>
 										{/each}
 									</select>
 								</div>
-							{:else if timeFilterMode === 'range'}
+							{:else if timeFilterMode === "range"}
 								<div class="custom-field-group">
 									<label for="filter-start">Dari:</label>
-									<input id="filter-start" type="date" bind:value={filterStartDate} class="custom-input-box" />
+									<input
+										id="filter-start"
+										type="date"
+										bind:value={filterStartDate}
+										class="custom-input-box"
+									/>
 								</div>
 								<div class="custom-field-group">
 									<label for="filter-end">Sampai:</label>
-									<input id="filter-end" type="date" bind:value={filterEndDate} class="custom-input-box" />
+									<input
+										id="filter-end"
+										type="date"
+										bind:value={filterEndDate}
+										class="custom-input-box"
+									/>
 								</div>
-							{:else if timeFilterMode === 'date'}
+							{:else if timeFilterMode === "date"}
 								<div class="custom-field-group">
-									<label for="filter-specific">Tanggal:</label>
-									<input id="filter-specific" type="date" bind:value={filterSpecificDate} class="custom-input-box" />
+									<label for="filter-specific">Tanggal:</label
+									>
+									<input
+										id="filter-specific"
+										type="date"
+										bind:value={filterSpecificDate}
+										class="custom-input-box"
+									/>
 								</div>
 							{/if}
 
@@ -1347,62 +1672,115 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 			</div>
 
 			<!-- ================== KARTU TOTAL MASING-MASING PT (SESUAI PILIHAN NAVBAR) ================== -->
-			{#if page === 'debts'}
+			{#if page === "debts"}
 				<div class="pt-summary-grid single-pt-grid">
-					<div class="pt-summary-card single-company-card card-{currentCompanyCode.toLowerCase()}">
+					<div
+						class="pt-summary-card single-company-card card-{currentCompanyCode.toLowerCase()}"
+					>
 						<div class="card-pt-head">
-							<div style="display:flex; align-items:center; gap:0.6rem;">
-								<span class="pt-tag tag-{currentCompanyCode.toLowerCase()}">PT {data.currentCompany?.code}</span>
-								<span class="pt-fullname">{data.currentCompany?.name}</span>
+							<div
+								style="display:flex; align-items:center; gap:0.6rem;"
+							>
+								<span
+									class="pt-tag tag-{currentCompanyCode.toLowerCase()}"
+									>PT {data.currentCompany?.code}</span
+								>
+								<span class="pt-fullname"
+									>{data.currentCompany?.name}</span
+								>
 							</div>
-							<span class="card-period-pill">📅 Periode: {activePeriodLabel}</span>
+							<span class="card-period-pill"
+								>📅 Periode: {activePeriodLabel}</span
+							>
 						</div>
-						<div class="card-pt-amount">{rp(summaryDebtsCurrent.totalRemaining)}</div>
+						<div class="card-pt-amount">
+							{rp(summaryDebtsCurrent.totalRemaining)}
+						</div>
 						<div class="card-pt-foot">
-							<span>📌 {summaryDebtsCurrent.count} Bon Belum Lunas</span>
-							<span class="card-action-hint">Total OS Hutang PT {data.currentCompany?.code}</span>
+							<span
+								>📌 {summaryDebtsCurrent.count} Bon Belum Lunas</span
+							>
+							<span class="card-action-hint"
+								>Total OS Hutang PT {data.currentCompany
+									?.code}</span
+							>
 						</div>
 					</div>
 				</div>
-			{:else if page === 'history'}
+			{:else if page === "history"}
 				<div class="pt-summary-grid single-pt-grid">
-					<div class="pt-summary-card single-company-card card-{currentCompanyCode.toLowerCase()}">
+					<div
+						class="pt-summary-card single-company-card card-{currentCompanyCode.toLowerCase()}"
+					>
 						<div class="card-pt-head">
-							<div style="display:flex; align-items:center; gap:0.6rem;">
-								<span class="pt-tag tag-{currentCompanyCode.toLowerCase()}">PT {data.currentCompany?.code}</span>
-								<span class="pt-fullname">{data.currentCompany?.name}</span>
+							<div
+								style="display:flex; align-items:center; gap:0.6rem;"
+							>
+								<span
+									class="pt-tag tag-{currentCompanyCode.toLowerCase()}"
+									>PT {data.currentCompany?.code}</span
+								>
+								<span class="pt-fullname"
+									>{data.currentCompany?.name}</span
+								>
 							</div>
-							<span class="card-period-pill">📅 Periode: {activePeriodLabel}</span>
-						</div>
-						<div class="card-pt-amount green">{rp(summaryPaidCurrent.totalPaid)}</div>
-						<div class="card-pt-foot">
-							<span>✅ {summaryPaidCurrent.count} Transaksi Telah Lunas</span>
-							<span class="card-action-hint">Total Pelunasan PT {data.currentCompany?.code}</span>
-						</div>
-					</div>
-				</div>
-			{:else if page === 'balance'}
-				<div class="pt-summary-grid single-pt-grid">
-					<div class="pt-summary-card single-company-card card-{currentCompanyCode.toLowerCase()}">
-						<div class="card-pt-head">
-							<div style="display:flex; align-items:center; gap:0.6rem;">
-								<span class="pt-tag tag-{currentCompanyCode.toLowerCase()}">PT {data.currentCompany?.code}</span>
-								<span class="pt-fullname">{data.currentCompany?.name}</span>
-							</div>
-							<span class="card-period-pill">📅 Periode: {activePeriodLabel}</span>
+							<span class="card-period-pill"
+								>📅 Periode: {activePeriodLabel}</span
+							>
 						</div>
 						<div class="card-pt-amount green">
-							{summaryBalanceCurrent.latestBalance !== null ? rp(summaryBalanceCurrent.latestBalance) : 'Belum Ada Data Saldo'}
+							{rp(summaryPaidCurrent.totalPaid)}
 						</div>
 						<div class="card-pt-foot">
-							<span>💰 {summaryBalanceCurrent.count} Catatan Saldo Kas Tercatat</span>
-							<span class="card-action-hint">Sisa Saldo Kas PT {data.currentCompany?.code}</span>
+							<span
+								>✅ {summaryPaidCurrent.count} Transaksi Telah Lunas</span
+							>
+							<span class="card-action-hint"
+								>Total Pelunasan PT {data.currentCompany
+									?.code}</span
+							>
+						</div>
+					</div>
+				</div>
+			{:else if page === "balance"}
+				<div class="pt-summary-grid single-pt-grid">
+					<div
+						class="pt-summary-card single-company-card card-{currentCompanyCode.toLowerCase()}"
+					>
+						<div class="card-pt-head">
+							<div
+								style="display:flex; align-items:center; gap:0.6rem;"
+							>
+								<span
+									class="pt-tag tag-{currentCompanyCode.toLowerCase()}"
+									>PT {data.currentCompany?.code}</span
+								>
+								<span class="pt-fullname"
+									>{data.currentCompany?.name}</span
+								>
+							</div>
+							<span class="card-period-pill"
+								>📅 Periode: {activePeriodLabel}</span
+							>
+						</div>
+						<div class="card-pt-amount green">
+							{summaryBalanceCurrent.latestBalance !== null
+								? rp(summaryBalanceCurrent.latestBalance)
+								: "Belum Ada Data Saldo"}
+						</div>
+						<div class="card-pt-foot">
+							<span
+								>💰 {summaryBalanceCurrent.count} Catatan Saldo Kas
+								Tercatat</span
+							>
+							<span class="card-action-hint"
+								>Sisa Saldo Kas PT {data.currentCompany
+									?.code}</span
+							>
 						</div>
 					</div>
 				</div>
 			{/if}
-
-
 
 			<!-- ================ OS HUTANG AKTIF ================ -->
 			{#if page === "debts"}
@@ -1583,7 +1961,8 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							<option value="date_desc">📅 Tgl: Terbaru</option>
 							<option value="date_asc">📅 Tgl: Terlama</option>
 							<option value="name_asc">🔤 Supplier: A - Z</option>
-							<option value="name_desc">🔤 Supplier: Z - A</option>
+							<option value="name_desc">🔤 Supplier: Z - A</option
+							>
 						</select>
 
 						<input
@@ -1614,22 +1993,38 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 								<tr>
 									<th
 										class="sortable-th"
-										onclick={() => (debtSortBy = debtSortBy === "name_asc" ? "name_desc" : "name_asc")}
+										onclick={() =>
+											(debtSortBy =
+												debtSortBy === "name_asc"
+													? "name_desc"
+													: "name_asc")}
 										title="Klik untuk urutkan nama Supplier A-Z atau Z-A"
 									>
 										Supplier / Pihak
 										<span class="sort-badge">
-											{debtSortBy === "name_asc" ? "↑ A-Z" : debtSortBy === "name_desc" ? "↓ Z-A" : "↕"}
+											{debtSortBy === "name_asc"
+												? "↑ A-Z"
+												: debtSortBy === "name_desc"
+													? "↓ Z-A"
+													: "↕"}
 										</span>
 									</th>
 									<th
 										class="sortable-th"
-										onclick={() => (debtSortBy = debtSortBy === "date_desc" ? "date_asc" : "date_desc")}
+										onclick={() =>
+											(debtSortBy =
+												debtSortBy === "date_desc"
+													? "date_asc"
+													: "date_desc")}
 										title="Klik untuk urutkan Tanggal Bon Terbaru atau Terlama"
 									>
 										Tgl Bon
 										<span class="sort-badge">
-											{debtSortBy === "date_desc" ? "↓ Baru" : debtSortBy === "date_asc" ? "↑ Lama" : "↕"}
+											{debtSortBy === "date_desc"
+												? "↓ Baru"
+												: debtSortBy === "date_asc"
+													? "↑ Lama"
+													: "↕"}
 										</span>
 									</th>
 									<th>Jatuh Tempo</th>
@@ -1649,9 +2044,20 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 											"overdue"}
 									>
 										<td>
-											<div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
-												<span style="font-weight: 600; color: #0f172a;">{d.contact_name}</span>
-												<span class="badge-pt-inline {d.company_code === 'ART' ? 'art' : 'knm'}">{d.company_code}</span>
+											<div
+												style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;"
+											>
+												<span
+													style="font-weight: 600; color: #0f172a;"
+													>{d.contact_name}</span
+												>
+												<span
+													class="badge-pt-inline {d.company_code ===
+													'ART'
+														? 'art'
+														: 'knm'}"
+													>{d.company_code}</span
+												>
 											</div>
 											{#if d.invoice_no}
 												<div
@@ -1805,7 +2211,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							style="font-size:0.75rem; text-transform:uppercase; font-weight:700; color:#b45309; letter-spacing:0.5px; display:flex; align-items:center; gap:0.4rem;"
 						>
 							<span>⏳ ANTREAN PERSETUJUAN (ACC) PEMBAYARAN</span>
-							<span style="background:#f59e0b; color:#ffffff; font-size:0.7rem; padding:0.1rem 0.45rem; border-radius:12px; font-weight:700;">
+							<span
+								style="background:#f59e0b; color:#ffffff; font-size:0.7rem; padding:0.1rem 0.45rem; border-radius:12px; font-weight:700;"
+							>
 								{data.currentCompany?.code}
 							</span>
 						</div>
@@ -1817,22 +2225,29 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						<div
 							style="font-size:0.8rem; color:#78350f; margin-top:0.15rem;"
 						>
-							Terdapat <strong>{summaryPendingCurrent.count} pengajuan tagihan</strong> yang menunggu persetujuan (ACC) dari Pak Denny sebelum dicairkan & masuk ke Sudah Dibayar.
+							Terdapat <strong
+								>{summaryPendingCurrent.count} pengajuan tagihan</strong
+							> yang menunggu persetujuan (ACC) dari Pak Danny sebelum
+							dicairkan & masuk ke Sudah Dibayar.
 						</div>
 					</div>
 
-					<div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+					<div
+						style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;"
+					>
 						<!-- Tombol Export Excel & PDF Menunggu ACC -->
 						<div class="export-btn-group">
 							<a
-								href="/api/export/menunggu-acc?pt={data.currentCompany?.code || 'ART'}&type=excel"
+								href="/api/export/menunggu-acc?pt={data
+									.currentCompany?.code || 'ART'}&type=excel"
 								class="btn-export-excel"
 								title="Download Excel Daftar Pengajuan Menunggu ACC untuk dikirim ke WA Bos"
 							>
 								<span>📥</span> Export Excel
 							</a>
 							<a
-								href="/api/export/menunggu-acc?pt={data.currentCompany?.code || 'ART'}&type=pdf"
+								href="/api/export/menunggu-acc?pt={data
+									.currentCompany?.code || 'ART'}&type=pdf"
 								class="btn-export-pdf"
 								title="Download Laporan PDF Daftar Pengajuan Menunggu ACC untuk dikirim ke WA Bos"
 							>
@@ -1844,18 +2259,25 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							type="button"
 							style="background:#25d366; color:#ffffff; font-size:0.82rem; font-weight:700; padding:0.55rem 1rem; border-radius:10px; border:none; cursor:pointer; display:flex; align-items:center; gap:0.4rem; box-shadow:0 2px 8px rgba(37,211,102,0.3); transition:transform 0.15s ease;"
 							onclick={sendAllPendingWhatsAppReminder}
-							title="Kirim daftar tagihan ke WhatsApp Pak Denny"
+							title="Kirim daftar tagihan ke WhatsApp Pak Danny/Pak Carmen"
 						>
 							<span>📱</span>
-							<span>Kirim Ringkasan WA ke Pak Denny</span>
+							<span
+								>Kirim Ringkasan WA ke Pak Danny/ Pak Carmen</span
+							>
 						</button>
 					</div>
 				</div>
 
 				<!-- Bar Pencarian & Info Petunjuk -->
 				<div class="debt-toolbar" style="margin-bottom:1rem;">
-					<div style="display:flex; align-items:center; gap:0.65rem; flex:1; flex-wrap:wrap;">
-						<div class="search-box" style="flex:1; min-width:240px;">
+					<div
+						style="display:flex; align-items:center; gap:0.65rem; flex:1; flex-wrap:wrap;"
+					>
+						<div
+							class="search-box"
+							style="flex:1; min-width:240px;"
+						>
 							<span class="search-icon">🔍</span>
 							<input
 								type="text"
@@ -1871,18 +2293,29 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							<option value="date_desc">📅 Tgl: Terbaru</option>
 							<option value="date_asc">📅 Tgl: Terlama</option>
 							<option value="name_asc">🔤 Supplier: A - Z</option>
-							<option value="name_desc">🔤 Supplier: Z - A</option>
+							<option value="name_desc">🔤 Supplier: Z - A</option
+							>
 						</select>
 					</div>
 
-					<div style="font-size:0.8rem; color:#64748b; display:flex; align-items:center; gap:0.4rem;">
+					<div
+						style="font-size:0.8rem; color:#64748b; display:flex; align-items:center; gap:0.4rem;"
+					>
 						{#if isBoss}
-							<span style="background:#e0e7ff; color:#3730a3; padding:0.35rem 0.65rem; border-radius:8px; font-weight:600;">
-								👑 Anda login sebagai Pak Denny (Atasan) — Tekan "ACC & Bayar" untuk menyetujui pelunasan.
+							<span
+								style="background:#e0e7ff; color:#3730a3; padding:0.35rem 0.65rem; border-radius:8px; font-weight:600;"
+							>
+								👑 Anda login sebagai Pak Danny/Pak Carmen
+								(Atasan) — Tekan "ACC & Bayar" untuk menyetujui
+								pelunasan.
 							</span>
 						{:else}
-							<span style="background:#f1f5f9; color:#475569; padding:0.35rem 0.65rem; border-radius:8px; font-weight:500;">
-								💡 Tagihan di bawah sedang menunggu ACC Pak Denny. Gunakan tombol WA untuk mengirim pengingat.
+							<span
+								style="background:#f1f5f9; color:#475569; padding:0.35rem 0.65rem; border-radius:8px; font-weight:500;"
+							>
+								💡 Tagihan di bawah sedang menunggu ACC Pak
+								Danny. Gunakan tombol WA untuk mengirim
+								pengingat.
 							</span>
 						{/if}
 					</div>
@@ -1892,15 +2325,28 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 				<div class="card" style="padding:0; overflow:hidden;">
 					{#if filteredPendingDebts.length === 0}
 						<div class="empty-state" style="padding:3.5rem 1.5rem;">
-							<div class="icon" style="font-size:2.8rem; margin-bottom:0.6rem;">✨</div>
-							<div class="empty-title" style="font-size:1.15rem; font-weight:700; color:#1e293b;">
+							<div
+								class="icon"
+								style="font-size:2.8rem; margin-bottom:0.6rem;"
+							>
+								✨
+							</div>
+							<div
+								class="empty-title"
+								style="font-size:1.15rem; font-weight:700; color:#1e293b;"
+							>
 								Tidak Ada Antrean Persetujuan (ACC)
 							</div>
-							<p style="color:#64748b; font-size:0.85rem; max-width:480px; margin:0.35rem auto 1rem;">
+							<p
+								style="color:#64748b; font-size:0.85rem; max-width:480px; margin:0.35rem auto 1rem;"
+							>
 								{#if pendingSearch.trim()}
-									Tidak ada tagihan yang cocok dengan pencarian "{pendingSearch}".
+									Tidak ada tagihan yang cocok dengan
+									pencarian "{pendingSearch}".
 								{:else}
-									Semua pengajuan pembayaran telah selesai diproses atau belum ada pengajuan baru dari menu OS Hutang Aktif.
+									Semua pengajuan pembayaran telah selesai
+									diproses atau belum ada pengajuan baru dari
+									menu OS Hutang Aktif.
 								{/if}
 							</p>
 							<button
@@ -1916,12 +2362,16 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						<table class="table" style="width:100%;">
 							<thead>
 								<tr>
-									<th style="width:50px;">No</th>
+									<th style="width:45px;">No</th>
 									<th>Supplier / Toko</th>
 									<th>No. Bon & Ket</th>
+									<th>Tgl Nota / Bon</th>
 									<th>Total Bon</th>
-									<th style="background:#fffbeb; color:#92400e;">Nominal Diajukan</th>
-									<th>Rencana Bayar</th>
+									<th
+										style="background:#fffbeb; color:#92400e;"
+										>Nominal Diajukan</th
+									>
+									<th>Tgl Pengajuan</th>
 									<th>Diajukan Oleh</th>
 									<th>Status</th>
 									<th style="text-align:right;">Aksi</th>
@@ -1929,53 +2379,93 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							</thead>
 							<tbody>
 								{#each filteredPendingDebts as d, i}
-									<tr style="transition:background 0.15s ease;">
-										<td style="color:#94a3b8; font-weight:600;">{i + 1}</td>
+									<tr
+										style="transition:background 0.15s ease;"
+									>
+										<td
+											style="color:#94a3b8; font-weight:600;"
+											>{i + 1}</td
+										>
 										<td>
-											<div style="font-weight:700; color:#0f172a; font-size:0.9rem;">
+											<div
+												style="font-weight:700; color:#0f172a; font-size:0.9rem;"
+											>
 												{d.contact_name}
 											</div>
-											<div style="font-size:0.72rem; color:#64748b;">
-												{d.company_code || data.currentCompany?.code} • {d.contact_type === 'supplier' ? 'Supplier' : 'Non-Vendor'}
+											<div
+												style="font-size:0.72rem; color:#64748b;"
+											>
+												{d.company_code ||
+													data.currentCompany?.code} •
+												{d.contact_type === "supplier"
+													? "Supplier"
+													: "Non-Vendor"}
 											</div>
 										</td>
 										<td>
-											<div style="font-family:monospace; font-weight:600; color:#475569; font-size:0.82rem;">
+											<div
+												style="font-family:monospace; font-weight:600; color:#475569; font-size:0.82rem;"
+											>
 												{d.invoice_no || "-"}
 											</div>
-											<div style="font-size:0.78rem; color:#64748b; max-width:220px; white-space:normal;">
+											<div
+												style="font-size:0.78rem; color:#64748b; max-width:220px; white-space:normal;"
+											>
 												{d.description}
 											</div>
 										</td>
 										<td>
-											<div style="font-weight:600; color:#64748b; font-size:0.85rem;">
+											<div
+												style="font-weight:600; color:#334155; font-size:0.82rem;"
+											>
+												{d.invoice_date || "-"}
+											</div>
+										</td>
+										<td>
+											<div
+												style="font-weight:600; color:#64748b; font-size:0.85rem;"
+											>
 												{rp(d.amount)}
 											</div>
 											{#if d.paid_amount > 0}
-												<div style="font-size:0.7rem; color:#16a34a;">
-													Sudah cicil: {rp(d.paid_amount)}
+												<div
+													style="font-size:0.7rem; color:#16a34a;"
+												>
+													Sudah cicil: {rp(
+														d.paid_amount,
+													)}
 												</div>
 											{/if}
 										</td>
 										<td style="background:#fffdf5;">
-											<div style="font-weight:800; color:#b45309; font-size:0.95rem;">
-												{rp(d.pending_amount || d.remaining_amount)}
-											</div>
-											<div style="font-size:0.7rem; color:#92400e;">
-												Sumber: {d.pending_source_fund || 'Tunai'}
-											</div>
-										</td>
-										<td>
-											<div style="font-weight:600; color:#334155; font-size:0.82rem;">
-												{d.pending_payment_date || d.invoice_date}
+											<div
+												style="font-weight:800; color:#b45309; font-size:0.95rem;"
+											>
+												{rp(
+													d.pending_amount ||
+														d.remaining_amount,
+												)}
 											</div>
 										</td>
 										<td>
-											<div style="font-weight:600; color:#1e293b; font-size:0.82rem;">
-												{d.pending_by || 'Petugas Keuangan'}
+											<div
+												style="font-weight:600; color:#334155; font-size:0.82rem;"
+											>
+												{d.pending_payment_date ||
+													d.invoice_date}
+											</div>
+										</td>
+										<td>
+											<div
+												style="font-weight:600; color:#1e293b; font-size:0.82rem;"
+											>
+												{d.pending_by ||
+													"Petugas Keuangan"}
 											</div>
 											{#if d.pending_notes}
-												<div style="font-size:0.72rem; color:#475569; font-style:italic; max-width:180px; white-space:normal; margin-top:0.15rem;">
+												<div
+													style="font-size:0.72rem; color:#475569; font-style:italic; max-width:180px; white-space:normal; margin-top:0.15rem;"
+												>
 													"{d.pending_notes}"
 												</div>
 											{/if}
@@ -1988,13 +2478,19 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 											</span>
 										</td>
 										<td style="text-align:right;">
-											<div style="display:flex; justify-content:flex-end; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+											<div
+												style="display:flex; justify-content:flex-end; align-items:center; gap:0.4rem; flex-wrap:wrap;"
+											>
 												{#if isBoss}
 													<!-- Tombol ACC & Bayar (Khusus Atasan) -->
 													<button
 														type="button"
 														style="background:#16a34a; color:#ffffff; border:none; border-radius:6px; padding:0.4rem 0.65rem; font-size:0.75rem; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.25rem; box-shadow:0 1px 4px rgba(22,163,74,0.3);"
-														onclick={() => openApproveModal(d)}
+														onclick={() =>
+															openApproveModal(
+																d,
+																false,
+															)}
 														title="Setujui dan selesaikan pembayaran tagihan ini"
 													>
 														<span>✅</span> ACC & Bayar
@@ -2004,42 +2500,82 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 													<button
 														type="button"
 														style="background:#dc2626; color:#ffffff; border:none; border-radius:6px; padding:0.4rem 0.65rem; font-size:0.75rem; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.25rem;"
-														onclick={() => openRejectModal(d)}
+														onclick={() =>
+															openRejectModal(d)}
 														title="Tolak pengajuan dan kembalikan ke menu OS Hutang"
 													>
 														<span>❌</span> Tolak
 													</button>
 												{:else}
+													<!-- Tombol ACC by WhatsApp (Untuk Admin jika sudah di-ACC Bos lewat WA) -->
+													<button
+														type="button"
+														style="background:#059669; color:#ffffff; border:none; border-radius:6px; padding:0.4rem 0.65rem; font-size:0.75rem; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.25rem; box-shadow:0 1px 4px rgba(5,150,105,0.3);"
+														onclick={() =>
+															openApproveModal(
+																d,
+																true,
+															)}
+														title="Langsung ACC jika Pak Carmen atau Pak Danny sudah setuju lewat WhatsApp"
+													>
+														<span>✅</span> ACC by WA
+													</button>
+
 													<!-- Tombol WhatsApp Pengingat (Untuk Staff) -->
 													<button
 														type="button"
 														style="background:#25d366; color:#ffffff; border:none; border-radius:6px; padding:0.4rem 0.65rem; font-size:0.75rem; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.25rem; box-shadow:0 1px 4px rgba(37,211,102,0.3);"
-														onclick={() => sendWhatsAppReminder(d)}
-														title="Kirim pesan WhatsApp pengingat langsung ke Pak Denny"
+														onclick={() =>
+															sendWhatsAppReminder(
+																d,
+															)}
+														title="Kirim pesan WhatsApp pengingat langsung ke Pak Danny / Pak Carmen"
 													>
-														<span>🔔</span> Ingatkan Bos
+														<span>🔔</span> Ingatkan
+														Bos
 													</button>
 
 													<!-- Tombol Batal Ajukan (Tarik Kembali ke OS Hutang) -->
 													<form
 														method="POST"
-														action="?pt={data.currentCompany?.code || 'ART'}&/cancelApprovalRequest"
+														action="?pt={data
+															.currentCompany
+															?.code ||
+															'ART'}&/cancelApprovalRequest"
 														use:enhance={() => {
-															return async ({ result, update }) => {
-																if (result.type === "success") {
-																	notify("info", "Pengajuan Ditarik", "Tagihan telah dikembalikan ke menu OS Hutang Aktif.");
+															return async ({
+																result,
+																update,
+															}) => {
+																if (
+																	result.type ===
+																	"success"
+																) {
+																	notify(
+																		"info",
+																		"Pengajuan Ditarik",
+																		"Tagihan telah dikembalikan ke menu OS Hutang Aktif.",
+																	);
 																}
 																await update();
 															};
 														}}
 														style="display:inline;"
 														onsubmit={(e) => {
-															if (!confirm("Tarik kembali pengajuan ini dan kembalikan ke OS Hutang?")) {
+															if (
+																!confirm(
+																	"Tarik kembali pengajuan ini dan kembalikan ke OS Hutang?",
+																)
+															) {
 																e.preventDefault();
 															}
 														}}
 													>
-														<input type="hidden" name="debt_id" value={d.id} />
+														<input
+															type="hidden"
+															name="debt_id"
+															value={d.id}
+														/>
 														<button
 															type="submit"
 															style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; border-radius:6px; padding:0.4rem 0.6rem; font-size:0.75rem; font-weight:600; cursor:pointer;"
@@ -2080,24 +2616,84 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							>
 						</div>
 					</div>
-					<div style="display:flex; align-items:center; gap:1.25rem;">
+					<div
+						style="display:flex; align-items:center; gap:0.85rem; flex-wrap:wrap;"
+					>
+						<!-- Pengaturan Download Per Hari vs Sesuai Periode -->
+						<div
+							style="display:flex; align-items:center; gap:0.45rem; background:#ffffff; padding:0.35rem 0.65rem; border-radius:10px; border:1px solid #86efac; flex-wrap:wrap;"
+						>
+							<select
+								bind:value={exportPaidMode}
+								style="border:none; background:transparent; font-size:0.78rem; font-weight:700; color:#166534; cursor:pointer; outline:none;"
+								title="Pilih mode download laporan pembayaran"
+							>
+								<option value="daily"
+									>📅 Download Per Hari:</option
+								>
+								<option value="period"
+									>🗓️ Download Sesuai Filter Periode</option
+								>
+							</select>
+
+							{#if exportPaidMode === "daily"}
+								<input
+									type="date"
+									bind:value={exportPaidDate}
+									onchange={() => {
+										timeFilterMode = "date";
+										filterSpecificDate = exportPaidDate;
+										activePreset =
+											exportPaidDate === todayISODate
+												? "today"
+												: "custom";
+									}}
+									style="border:1px solid #cbd5e1; border-radius:6px; padding:0.2rem 0.45rem; font-size:0.78rem; font-weight:600; color:#0f172a;"
+									title="Pilih tanggal pembayaran yang ingin didownload (tidak digabung dengan hari kemarin)"
+								/>
+								{#if exportPaidDate !== todayISODate}
+									<button
+										type="button"
+										onclick={() => {
+											exportPaidDate = todayISODate;
+											timeFilterMode = "date";
+											filterSpecificDate = todayISODate;
+											activePreset = "today";
+										}}
+										style="background:#dcfce7; color:#166534; border:1px solid #86efac; border-radius:5px; padding:0.18rem 0.45rem; font-size:0.72rem; font-weight:700; cursor:pointer;"
+									>
+										Hari Ini
+									</button>
+								{/if}
+							{/if}
+						</div>
+
 						<!-- Tombol Export Excel & PDF Data Pembayaran -->
 						<div class="export-btn-group">
 							<a
-								href="/api/export/pembayaran?pt={data
-									.currentCompany?.code || 'ART'}&type=excel"
+								href="/api/export/pembayaran?{exportPembayaranQuery}&type=excel"
 								class="btn-export-excel"
-								title="Download Excel Data Pembayaran Sesuai Template Asli"
+								title="Download Excel Data Pembayaran ({exportPaidMode ===
+								'daily'
+									? 'Harian: ' + exportPaidDate
+									: activePeriodLabel})"
 							>
-								<span>📥</span> Export Excel
+								<span>📥</span> Excel {exportPaidMode ===
+								"daily"
+									? `(${exportPaidDate})`
+									: ""}
 							</a>
 							<a
-								href="/api/export/pembayaran?pt={data
-									.currentCompany?.code || 'ART'}&type=pdf"
+								href="/api/export/pembayaran?{exportPembayaranQuery}&type=pdf"
 								class="btn-export-pdf"
-								title="Download Laporan PDF Data Pembayaran"
+								title="Download Laporan PDF Data Pembayaran ({exportPaidMode ===
+								'daily'
+									? 'Harian: ' + exportPaidDate
+									: activePeriodLabel})"
 							>
-								<span>📄</span> Export PDF
+								<span>📄</span> PDF {exportPaidMode === "daily"
+									? `(${exportPaidDate})`
+									: ""}
 							</a>
 						</div>
 
@@ -2116,29 +2712,38 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					</div>
 				</div>
 
-				
 				<!-- Form Input Pengeluaran / Pembayaran Langsung (Tanpa Bon) -->
 				<div
 					id="form-pengeluaran-langsung"
 					style="background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%); border-radius:12px; padding:1.25rem 1.5rem; border:2px solid #86efac; margin-bottom:1.5rem; box-shadow:0 4px 15px -3px rgba(16,185,129,0.08);"
 				>
-					<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
+					<div
+						style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;"
+					>
 						<h3
 							style="margin:0; font-size:1.05rem; font-weight:700; color:#065f46; display:flex; align-items:center; gap:0.5rem;"
 						>
-							<span>💸</span> Form Pengeluaran / Belanja Langsung (Tanpa Bon) — PT {data.currentCompany?.code}
+							<span>💸</span> Form Pengeluaran / Belanja Langsung
+							(Tanpa Bon) — PT {data.currentCompany?.code}
 						</h3>
-						<span style="font-size:0.75rem; background:#dcfce7; color:#166534; padding:0.25rem 0.65rem; border-radius:20px; font-weight:700; border:1px solid #bbf7d0;">
+						<span
+							style="font-size:0.75rem; background:#dcfce7; color:#166534; padding:0.25rem 0.65rem; border-radius:20px; font-weight:700; border:1px solid #bbf7d0;"
+						>
 							✨ Otomatis Masuk Sudah Dibayar (Lunas)
 						</span>
 					</div>
-					<p style="margin:0 0 1rem 0; font-size:0.82rem; color:#475569;">
-						Gunakan form ini untuk mencatat pembayaran karyawan (gaji/kasbon), belanja operasional, atau pembelian tanpa bon/nota yang langsung dibayarkan tunai.
+					<p
+						style="margin:0 0 1rem 0; font-size:0.82rem; color:#475569;"
+					>
+						Gunakan form ini untuk mencatat pembayaran karyawan
+						(gaji/kasbon), belanja operasional, atau pembelian tanpa
+						bon/nota yang langsung dibayarkan tunai.
 					</p>
 
 					<form
 						method="POST"
-						action="?pt={data.currentCompany?.code || 'ART'}&/addDirectPayment"
+						action="?pt={data.currentCompany?.code ||
+							'ART'}&/addDirectPayment"
 						use:enhance={() => {
 							return async ({ result, update }) => {
 								if (result.type === "success") {
@@ -2160,14 +2765,18 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							value={data.currentCompany?.id}
 						/>
 
-						<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap:1rem; align-items:flex-end;">
+						<div
+							style="display:grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap:1rem; align-items:flex-end;"
+						>
 							<!-- 1. UNTUK SIAPA -->
 							<div>
 								<label
 									for="input-direct-recipient"
 									style="display:block; font-size:0.82rem; font-weight:700; color:#1e293b; margin-bottom:0.35rem;"
 								>
-									Untuk Siapa (Karyawan / Toko / Belanja) <span style="color:#ef4444;">*</span>
+									Untuk Siapa (Karyawan / Toko / Belanja) <span
+										style="color:#ef4444;">*</span
+									>
 								</label>
 								<input
 									id="input-direct-recipient"
@@ -2191,7 +2800,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 									for="input-direct-date"
 									style="display:block; font-size:0.82rem; font-weight:700; color:#1e293b; margin-bottom:0.35rem;"
 								>
-									Tanggal Pengeluaran <span style="color:#ef4444;">*</span>
+									Tanggal Pengeluaran <span
+										style="color:#ef4444;">*</span
+									>
 								</label>
 								<input
 									id="input-direct-date"
@@ -2209,9 +2820,13 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 									for="input-direct-amount"
 									style="display:block; font-size:0.82rem; font-weight:700; color:#1e293b; margin-bottom:0.35rem;"
 								>
-									Berapa Jumlahnya (Rp) <span style="color:#ef4444;">*</span>
+									Berapa Jumlahnya (Rp) <span
+										style="color:#ef4444;">*</span
+									>
 								</label>
-								<div style="position:relative; display:flex; align-items:center;">
+								<div
+									style="position:relative; display:flex; align-items:center;"
+								>
 									<span
 										style="position:absolute; left:0.85rem; font-weight:700; font-size:0.88rem; color:#059669;"
 										>Rp.</span
@@ -2235,7 +2850,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 									for="input-direct-desc"
 									style="display:block; font-size:0.82rem; font-weight:700; color:#1e293b; margin-bottom:0.35rem;"
 								>
-									Keterangan / Keperluan <span style="color:#ef4444;">*</span>
+									Keterangan / Keperluan <span
+										style="color:#ef4444;">*</span
+									>
 								</label>
 								<input
 									id="input-direct-desc"
@@ -2265,17 +2882,22 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 				<div
 					style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; gap:1rem; flex-wrap:wrap;"
 				>
-					<div style="display:flex; align-items:center; gap:0.75rem; flex:1; min-width:280px; max-width:720px;">
+					<div
+						style="display:flex; align-items:center; gap:0.75rem; flex:1; min-width:280px; max-width:720px;"
+					>
 						<div style="position:relative; width:100%;">
 							<span
 								style="position:absolute; left:0.85rem; top:50%; transform:translateY(-50%); color:#64748b; font-size:1rem; pointer-events:none;"
-							>🔍</span>
+								>🔍</span
+							>
 							<input
 								class="search-input"
 								type="text"
 								placeholder="Cari nama supplier / pihak yang sudah dibayar..."
 								bind:value={paidSearch}
-								style="width:100%; padding-left:2.5rem; padding-right:{paidSearch ? '2.5rem' : '1rem'}; height:42px; border-radius:10px; border:1.5px solid #cbd5e1; font-size:0.88rem; box-shadow:0 1px 3px rgba(0,0,0,0.04); background:#ffffff;"
+								style="width:100%; padding-left:2.5rem; padding-right:{paidSearch
+									? '2.5rem'
+									: '1rem'}; height:42px; border-radius:10px; border:1.5px solid #cbd5e1; font-size:0.88rem; box-shadow:0 1px 3px rgba(0,0,0,0.04); background:#ffffff;"
 							/>
 							{#if paidSearch}
 								<button
@@ -2291,20 +2913,36 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						<select
 							class="sort-select"
 							bind:value={paidSortBy}
-							title="Urutkan berdasarkan nama supplier (A-Z / Z-A) atau tanggal"
+							title="Urutkan berdasarkan nama supplier (A-Z / Z-A), Tgl Bayar/ACC, atau Tgl Nota"
 							style="height:42px; flex-shrink:0;"
 						>
-							<option value="date_desc">📅 Tgl: Terbaru</option>
-							<option value="date_asc">📅 Tgl: Terlama</option>
+							<option value="date_desc"
+								>📅 Tgl Bayar/ACC: Terbaru</option
+							>
+							<option value="date_asc"
+								>📅 Tgl Bayar/ACC: Terlama</option
+							>
+							<option value="nota_desc"
+								>🧾 Tgl Nota/Bon: Terbaru</option
+							>
+							<option value="nota_asc"
+								>🧾 Tgl Nota/Bon: Terlama</option
+							>
 							<option value="name_asc">🔤 Supplier: A - Z</option>
-							<option value="name_desc">🔤 Supplier: Z - A</option>
+							<option value="name_desc">🔤 Supplier: Z - A</option
+							>
 						</select>
 					</div>
 
-					<div style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; color:#475569;">
+					<div
+						style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; color:#475569;"
+					>
 						{#if paidSearch.trim()}
-							<span style="background:#e0f2fe; color:#0369a1; padding:0.35rem 0.85rem; border-radius:8px; font-weight:700; border:1px solid #bae6fd; display:flex; align-items:center; gap:0.35rem;">
-								<span>🔍</span> Ditemukan: {filteredPaidDebts.length} transaksi ({rp(summaryFilteredPaid.total)})
+							<span
+								style="background:#e0f2fe; color:#0369a1; padding:0.35rem 0.85rem; border-radius:8px; font-weight:700; border:1px solid #bae6fd; display:flex; align-items:center; gap:0.35rem;"
+							>
+								<span>🔍</span> Ditemukan: {filteredPaidDebts.length}
+								transaksi ({rp(summaryFilteredPaid.total)})
 							</span>
 							<button
 								type="button"
@@ -2314,8 +2952,12 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 								Reset Pencarian
 							</button>
 						{:else}
-							<span style="color:#64748b; font-size:0.82rem; font-weight:500;">
-								Total transaksi lunas: <strong>{filteredPaidDebts.length} transaksi</strong>
+							<span
+								style="color:#64748b; font-size:0.82rem; font-weight:500;"
+							>
+								Total transaksi lunas: <strong
+									>{filteredPaidDebts.length} transaksi</strong
+								>
 							</span>
 						{/if}
 					</div>
@@ -2327,10 +2969,12 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							{#if paidSearch.trim()}
 								<div class="empty-icon">🔍</div>
 								<div class="empty-title">
-									Tidak ada supplier/transaksi yang cocok dengan "{paidSearch}"
+									Tidak ada supplier/transaksi yang cocok
+									dengan "{paidSearch}"
 								</div>
 								<div class="empty-desc">
-									Periksa kembali ejaan nama supplier atau pihak yang Anda cari di daftar lunas.
+									Periksa kembali ejaan nama supplier atau
+									pihak yang Anda cari di daftar lunas.
 								</div>
 								<button
 									type="button"
@@ -2357,23 +3001,57 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 								<tr>
 									<th
 										class="sortable-th"
-										onclick={() => (paidSortBy = paidSortBy === "name_asc" ? "name_desc" : "name_asc")}
+										onclick={() =>
+											(paidSortBy =
+												paidSortBy === "name_asc"
+													? "name_desc"
+													: "name_asc")}
 										title="Klik untuk urutkan nama Supplier A-Z atau Z-A"
 									>
 										Supplier / Pihak
 										<span class="sort-badge">
-											{paidSortBy === "name_asc" ? "↑ A-Z" : paidSortBy === "name_desc" ? "↓ Z-A" : "↕"}
+											{paidSortBy === "name_asc"
+												? "↑ A-Z"
+												: paidSortBy === "name_desc"
+													? "↓ Z-A"
+													: "↕"}
 										</span>
 									</th>
-									<th>No Invoice</th>
+									<th>No Nota / Bon</th>
 									<th
 										class="sortable-th"
-										onclick={() => (paidSortBy = paidSortBy === "date_desc" ? "date_asc" : "date_desc")}
-										title="Klik untuk urutkan Tanggal Bon Terbaru atau Terlama"
+										onclick={() =>
+											(paidSortBy =
+												paidSortBy === "nota_desc"
+													? "nota_asc"
+													: "nota_desc")}
+										title="Klik untuk urutkan Tanggal Nota / Bon Terbaru atau Terlama"
 									>
-										Tgl Bon
+										Tgl Nota / Bon
 										<span class="sort-badge">
-											{paidSortBy === "date_desc" ? "↓ Baru" : paidSortBy === "date_asc" ? "↑ Lama" : "↕"}
+											{paidSortBy === "nota_desc"
+												? "↓ Baru"
+												: paidSortBy === "nota_asc"
+													? "↑ Lama"
+													: "↕"}
+										</span>
+									</th>
+									<th
+										class="sortable-th"
+										onclick={() =>
+											(paidSortBy =
+												paidSortBy === "date_desc"
+													? "date_asc"
+													: "date_desc")}
+										title="Klik untuk urutkan Tanggal Bayar / ACC Terbaru atau Terlama"
+									>
+										Tgl Bayar / ACC
+										<span class="sort-badge">
+											{paidSortBy === "date_desc"
+												? "↓ Baru"
+												: paidSortBy === "date_asc"
+													? "↑ Lama"
+													: "↕"}
 										</span>
 									</th>
 									<th style="text-align:right"
@@ -2392,9 +3070,20 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 								{#each filteredPaidDebts as d}
 									<tr>
 										<td>
-											<div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
-												<span style="font-weight:600; color:#0f172a;">{d.contact_name}</span>
-												<span class="badge-pt-inline {d.company_code === 'ART' ? 'art' : 'knm'}">{d.company_code}</span>
+											<div
+												style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;"
+											>
+												<span
+													style="font-weight:600; color:#0f172a;"
+													>{d.contact_name}</span
+												>
+												<span
+													class="badge-pt-inline {d.company_code ===
+													'ART'
+														? 'art'
+														: 'knm'}"
+													>{d.company_code}</span
+												>
 											</div>
 											<span
 												class="badge badge-paid"
@@ -2402,18 +3091,38 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 												>✅ LUNAS</span
 											>
 										</td>
-										<td style="font-size:0.82rem; color:#64748b;">
-											{#if d.invoice_no === 'Tanpa Bon'}
-												<span style="display:inline-flex; align-items:center; gap:0.25rem; background:#ecfdf5; color:#047857; font-size:0.75rem; font-weight:700; padding:0.15rem 0.5rem; border-radius:6px; border:1px dashed #a7f3d0;">
+										<td
+											style="font-size:0.82rem; color:#64748b;"
+										>
+											{#if d.invoice_no === "Tanpa Bon"}
+												<span
+													style="display:inline-flex; align-items:center; gap:0.25rem; background:#ecfdf5; color:#047857; font-size:0.75rem; font-weight:700; padding:0.15rem 0.5rem; border-radius:6px; border:1px dashed #a7f3d0;"
+												>
 													<span>💸</span> Tanpa Bon
 												</span>
 											{:else}
 												{d.invoice_no || "-"}
 											{/if}
 										</td>
-										<td style="font-size:0.85rem;"
-											>{d.invoice_date}</td
+										<td
+											style="font-size:0.85rem; color:#475569;"
+											>{d.invoice_date || "-"}</td
 										>
+										<td style="font-size:0.85rem;">
+											<div
+												style="font-weight:700; color:#15803d;"
+											>
+												{d.payment_date ||
+													d.invoice_date}
+											</div>
+											{#if d.approved_by}
+												<div
+													style="font-size:0.68rem; color:#64748b; margin-top:2px;"
+												>
+													{d.approved_by}
+												</div>
+											{/if}
+										</td>
 										<td style="text-align:right" class="num"
 											>{rp(d.amount)}</td
 										>
@@ -2435,19 +3144,29 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 											>
 												👁️ Detail
 											</button>
-										
+
 											<form
 												method="POST"
-												action="?pt={data.currentCompany?.code || 'ART'}&/deleteDebt"
+												action="?pt={data.currentCompany
+													?.code ||
+													'ART'}&/deleteDebt"
 												use:enhance
 												style="display:inline; margin-left:4px;"
 												onsubmit={(e) => {
-													if (!confirm("Hapus data pembayaran ini? Data akan dihapus permanen.")) {
+													if (
+														!confirm(
+															"Hapus data pembayaran ini? Data akan dihapus permanen.",
+														)
+													) {
 														e.preventDefault();
 													}
 												}}
 											>
-												<input type="hidden" name="debt_id" value={d.id} />
+												<input
+													type="hidden"
+													name="debt_id"
+													value={d.id}
+												/>
 												<button
 													type="submit"
 													class="btn-del"
@@ -2476,7 +3195,8 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					<h3
 						style="margin:0 0 1rem 0; font-size:1rem; font-weight:700; color:#0f172a; display:flex; align-items:center; gap:0.5rem;"
 					>
-						<span>✍️</span> Form Input / Perbarui Sisa Saldo Kas PT {data.currentCompany?.code}
+						<span>✍️</span> Form Input / Perbarui Sisa Saldo Kas PT {data
+							.currentCompany?.code}
 					</h3>
 					<form
 						method="POST"
@@ -2616,8 +3336,14 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 											>{b.balance_date}</td
 										>
 										<td>
-											<span class="badge-pt-inline {b.company_code === 'ART' ? 'art' : 'knm'}">
-												{b.company_code || data.currentCompany?.code}
+											<span
+												class="badge-pt-inline {b.company_code ===
+												'ART'
+													? 'art'
+													: 'knm'}"
+											>
+												{b.company_code ||
+													data.currentCompany?.code}
 											</span>
 										</td>
 										<td
@@ -2701,20 +3427,29 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 	</div>
 </div>
 
-
 <!-- ============ MODAL: PENGELUARAN LANGSUNG (TANPA BON) ============ -->
 {#if showDirectModal}
 	<div class="modal-overlay" role="dialog" aria-modal="true">
 		<div class="modal" style="max-width:560px;">
-			<div class="modal-head" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color:white;">
-				<h2 style="color:white; margin:0; font-size:1.15rem; display:flex; align-items:center; gap:0.5rem;">
+			<div
+				class="modal-head"
+				style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color:white;"
+			>
+				<h2
+					style="color:white; margin:0; font-size:1.15rem; display:flex; align-items:center; gap:0.5rem;"
+				>
 					<span>💸</span> Catat Pembayaran / Belanja Langsung (Tanpa Bon)
 				</h2>
-				<button class="btn-close" style="color:white; background:rgba(255,255,255,0.2);" onclick={closeDirectModal}>✕</button>
+				<button
+					class="btn-close"
+					style="color:white; background:rgba(255,255,255,0.2);"
+					onclick={closeDirectModal}>✕</button
+				>
 			</div>
 			<form
 				method="POST"
-				action="?pt={data.currentCompany?.code || 'ART'}&/addDirectPayment"
+				action="?pt={data.currentCompany?.code ||
+					'ART'}&/addDirectPayment"
 				use:enhance={() => {
 					return async ({ result, update }) => {
 						if (result.type === "success") {
@@ -2735,15 +3470,29 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					name="company_id"
 					value={data.currentCompany?.id}
 				/>
-				<div class="modal-body" style="padding:1.5rem; display:flex; flex-direction:column; gap:1.1rem;">
-					<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:0.75rem 1rem; font-size:0.82rem; color:#166534;">
-						📌 Pengeluaran ini dicatat untuk <strong>{data.currentCompany?.code} ({data.currentCompany?.name})</strong> dan otomatis berstatus <strong>LUNAS</strong> di menu Sudah Dibayar.
+				<div
+					class="modal-body"
+					style="padding:1.5rem; display:flex; flex-direction:column; gap:1.1rem;"
+				>
+					<div
+						style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:0.75rem 1rem; font-size:0.82rem; color:#166534;"
+					>
+						📌 Pengeluaran ini dicatat untuk <strong
+							>{data.currentCompany?.code} ({data.currentCompany
+								?.name})</strong
+						>
+						dan otomatis berstatus <strong>LUNAS</strong> di menu Sudah
+						Dibayar.
 					</div>
 
 					<!-- 1. UNTUK SIAPA -->
 					<div class="field">
-						<label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.4rem; color:#1e293b;">
-							Untuk Siapa (Karyawan / Belanja / Pihak Penerima) <span style="color:#ef4444;">*</span>
+						<label
+							style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.4rem; color:#1e293b;"
+						>
+							Untuk Siapa (Karyawan / Belanja / Pihak Penerima) <span
+								style="color:#ef4444;">*</span
+							>
 						</label>
 						<input
 							type="text"
@@ -2762,8 +3511,12 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 
 					<!-- 2. TANGGAL -->
 					<div class="field">
-						<label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.4rem; color:#1e293b;">
-							Tanggal Pengeluaran / Pembayaran <span style="color:#ef4444;">*</span>
+						<label
+							style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.4rem; color:#1e293b;"
+						>
+							Tanggal Pengeluaran / Pembayaran <span
+								style="color:#ef4444;">*</span
+							>
 						</label>
 						<input
 							type="date"
@@ -2776,11 +3529,20 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 
 					<!-- 3. JUMLAH NOMINAL -->
 					<div class="field">
-						<label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.4rem; color:#1e293b;">
-							Berapa Jumlahnya (Rp) <span style="color:#ef4444;">*</span>
+						<label
+							style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.4rem; color:#1e293b;"
+						>
+							Berapa Jumlahnya (Rp) <span style="color:#ef4444;"
+								>*</span
+							>
 						</label>
-						<div style="position:relative; display:flex; align-items:center;">
-							<span style="position:absolute; left:0.85rem; font-weight:700; font-size:0.9rem; color:#059669;">Rp.</span>
+						<div
+							style="position:relative; display:flex; align-items:center;"
+						>
+							<span
+								style="position:absolute; left:0.85rem; font-weight:700; font-size:0.9rem; color:#059669;"
+								>Rp.</span
+							>
 							<input
 								type="text"
 								name="amount"
@@ -2795,8 +3557,12 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 
 					<!-- 4. KETERANGAN -->
 					<div class="field">
-						<label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.4rem; color:#1e293b;">
-							Keterangan / Keperluan Pengeluaran <span style="color:#ef4444;">*</span>
+						<label
+							style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.4rem; color:#1e293b;"
+						>
+							Keterangan / Keperluan Pengeluaran <span
+								style="color:#ef4444;">*</span
+							>
 						</label>
 						<textarea
 							name="description"
@@ -2808,8 +3574,15 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					</div>
 				</div>
 
-				<div class="modal-foot" style="padding:1rem 1.5rem; background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; justify-content:flex-end; gap:0.75rem;">
-					<button type="button" class="btn-cancel" onclick={closeDirectModal}>Batal</button>
+				<div
+					class="modal-foot"
+					style="padding:1rem 1.5rem; background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; justify-content:flex-end; gap:0.75rem;"
+				>
+					<button
+						type="button"
+						class="btn-cancel"
+						onclick={closeDirectModal}>Batal</button
+					>
 					<button
 						type="submit"
 						class="btn-primary"
@@ -2891,16 +3664,26 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 								name="contact_id"
 								bind:value={selectedContactId}
 								onchange={() => {
-									const found = data.contacts?.find((c: any) => String(c.id) === String(selectedContactId));
-									if (found && found.type) addContactType = found.type;
+									const found = data.contacts?.find(
+										(c: any) =>
+											String(c.id) ===
+											String(selectedContactId),
+									);
+									if (found && found.type)
+										addContactType = found.type;
 								}}
 								required
 							>
 								<option value=""
-									>-- Pilih supplier / pihak yang pernah diinput --</option
+									>-- Pilih supplier / pihak yang pernah
+									diinput --</option
 								>
 								{#each data.contacts || [] as c}
-									<option value={c.id}>{c.name} ({c.type === 'non_vendor' ? 'Non-Vendor' : 'Supplier'})</option>
+									<option value={c.id}
+										>{c.name} ({c.type === "non_vendor"
+											? "Non-Vendor"
+											: "Supplier"})</option
+									>
 								{/each}
 							</select>
 							{#if selectedObj}
@@ -2925,11 +3708,10 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							/>
 						{/if}
 
-						<div
-							class="radio-group"
-							style="margin-top:0.45rem;"
-						>
-							<label style="cursor:pointer; display:flex; align-items:center; gap:0.35rem;">
+						<div class="radio-group" style="margin-top:0.45rem;">
+							<label
+								style="cursor:pointer; display:flex; align-items:center; gap:0.35rem;"
+							>
 								<input
 									type="radio"
 									name="contact_type"
@@ -2937,13 +3719,16 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 									bind:group={addContactType}
 								/> 🏬 Supplier / Toko / Bengkel
 							</label>
-							<label style="cursor:pointer; display:flex; align-items:center; gap:0.35rem;">
+							<label
+								style="cursor:pointer; display:flex; align-items:center; gap:0.35rem;"
+							>
 								<input
 									type="radio"
 									name="contact_type"
 									value="non_vendor"
 									bind:group={addContactType}
-								/> 🏢 Non-Vendor (Kas Negara / Pajak / BPJS / Kasbon / dsb)
+								/> 🏢 Non-Vendor (Kas Negara / Pajak / BPJS / Kasbon
+								/ dsb)
 							</label>
 						</div>
 					</div>
@@ -2967,7 +3752,7 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							<input
 								type="date"
 								name="invoice_date"
-								value={new Date().toISOString().split("T")[0]}
+								value={todayISODate}
 								required
 							/>
 						</div>
@@ -3069,12 +3854,20 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 				}}
 			>
 				<input type="hidden" name="debt_id" value={editDebtTarget.id} />
-				<input type="hidden" name="company_id" value={editDebtTarget.company_id || data.currentCompany?.id} />
+				<input
+					type="hidden"
+					name="company_id"
+					value={editDebtTarget.company_id || data.currentCompany?.id}
+				/>
 
 				<div class="modal-body">
 					<!-- Nama Toko / Supplier / Pihak -->
 					<div class="field">
-						<label for="edit-contact-name">Nama Supplier / Toko / Pihak <span style="color:#ef4444;">*</span></label>
+						<label for="edit-contact-name"
+							>Nama Supplier / Toko / Pihak <span
+								style="color:#ef4444;">*</span
+							></label
+						>
 						<input
 							id="edit-contact-name"
 							type="text"
@@ -3092,7 +3885,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 
 						<!-- Pilihan Tipe: Supplier vs Non-Vendor -->
 						<div class="radio-group" style="margin-top:0.45rem;">
-							<label style="cursor:pointer; display:flex; align-items:center; gap:0.35rem;">
+							<label
+								style="cursor:pointer; display:flex; align-items:center; gap:0.35rem;"
+							>
 								<input
 									type="radio"
 									name="contact_type"
@@ -3100,13 +3895,16 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 									bind:group={editContactType}
 								/> 🏬 Supplier / Toko / Bengkel
 							</label>
-							<label style="cursor:pointer; display:flex; align-items:center; gap:0.35rem;">
+							<label
+								style="cursor:pointer; display:flex; align-items:center; gap:0.35rem;"
+							>
 								<input
 									type="radio"
 									name="contact_type"
 									value="non_vendor"
 									bind:group={editContactType}
-								/> 🏢 Non-Vendor (Kas Negara / Pajak / BPJS / Kasbon / dsb)
+								/> 🏢 Non-Vendor (Kas Negara / Pajak / BPJS / Kasbon
+								/ dsb)
 							</label>
 						</div>
 					</div>
@@ -3114,7 +3912,11 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					<!-- No Invoice & Tanggal Bon -->
 					<div class="field-grid">
 						<div class="field">
-							<label for="edit-invoice-no">No Invoice / No Bon <span style="color:#94a3b8">(opsional)</span></label>
+							<label for="edit-invoice-no"
+								>No Invoice / No Bon <span style="color:#94a3b8"
+									>(opsional)</span
+								></label
+							>
 							<input
 								id="edit-invoice-no"
 								type="text"
@@ -3124,7 +3926,11 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							/>
 						</div>
 						<div class="field">
-							<label for="edit-invoice-date">Tanggal Bon / Nota <span style="color:#ef4444;">*</span></label>
+							<label for="edit-invoice-date"
+								>Tanggal Bon / Nota <span style="color:#ef4444;"
+									>*</span
+								></label
+							>
 							<input
 								id="edit-invoice-date"
 								type="date"
@@ -3137,7 +3943,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 
 					<!-- Jatuh Tempo -->
 					<div class="field">
-						<label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-weight:600;">
+						<label
+							style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-weight:600;"
+						>
 							<input
 								type="checkbox"
 								name="has_due"
@@ -3156,14 +3964,19 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							/>
 						{:else}
 							<div class="field-hint">
-								Jika tidak diisi, otomatis dihitung 30 hari dari tanggal bon.
+								Jika tidak diisi, otomatis dihitung 30 hari dari
+								tanggal bon.
 							</div>
 						{/if}
 					</div>
 
 					<!-- Nominal Tagihan -->
 					<div class="field">
-						<label for="edit-amount">Total Tagihan (Rp) <span style="color:#ef4444;">*</span></label>
+						<label for="edit-amount"
+							>Total Tagihan (Rp) <span style="color:#ef4444;"
+								>*</span
+							></label
+						>
 						<div class="money-input-wrapper">
 							<span class="money-prefix">Rp</span>
 							<input
@@ -3173,22 +3986,36 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 								placeholder="0"
 								bind:value={editAmountFormatted}
 								oninput={(e) => {
-									const raw = e.currentTarget.value.replace(/\D/g, "");
-									editAmountFormatted = raw ? Number(raw).toLocaleString("id-ID") : "";
+									const raw = e.currentTarget.value.replace(
+										/\D/g,
+										"",
+									);
+									editAmountFormatted = raw
+										? Number(raw).toLocaleString("id-ID")
+										: "";
 								}}
 								required
 							/>
 						</div>
 						{#if editDebtTarget.paid_amount > 0}
-							<div class="field-hint" style="color:#0284c7; margin-top:0.25rem;">
-								ℹ️ Sudah pernah dibayar: {rp(editDebtTarget.paid_amount)}. Sisa hutang akan otomatis disesuaikan.
+							<div
+								class="field-hint"
+								style="color:#0284c7; margin-top:0.25rem;"
+							>
+								ℹ️ Sudah pernah dibayar: {rp(
+									editDebtTarget.paid_amount,
+								)}. Sisa hutang akan otomatis disesuaikan.
 							</div>
 						{/if}
 					</div>
 
 					<!-- Keterangan -->
 					<div class="field">
-						<label for="edit-description">Keterangan / Keperluan <span style="color:#ef4444;">*</span></label>
+						<label for="edit-description"
+							>Keterangan / Keperluan <span style="color:#ef4444;"
+								>*</span
+							></label
+						>
 						<input
 							id="edit-description"
 							type="text"
@@ -3201,8 +4028,12 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 				</div>
 
 				<div class="modal-foot">
-					<button type="button" class="btn-ghost" onclick={closeEdit}>Batal</button>
-					<button type="submit" class="btn-primary">💾 Simpan Perubahan</button>
+					<button type="button" class="btn-ghost" onclick={closeEdit}
+						>Batal</button
+					>
+					<button type="submit" class="btn-primary"
+						>💾 Simpan Perubahan</button
+					>
 				</div>
 			</form>
 		</div>
@@ -3499,16 +4330,21 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 							<table class="bon-payments-table">
 								<thead>
 									<tr>
-										<th>Tanggal Bayar</th>
+										<th>Tgl Nota / Bon</th>
+										<th>Tanggal Bayar / ACC</th>
 										<th>Nominal Dibayar</th>
-										<th>Sumber Dana</th>
 										<th>Keterangan / Catatan</th>
 									</tr>
 								</thead>
 								<tbody>
 									{#each detailPayments as p}
 										<tr>
-											<td style="font-weight:600;"
+											<td style="color:#475569;"
+												>{detailDebt.invoice_date ||
+													"-"}</td
+											>
+											<td
+												style="font-weight:700; color:#15803d;"
 												>{p.payment_date}</td
 											>
 											<td
@@ -3516,16 +4352,6 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 												class="num"
 												>{rp(p.amount_paid)}</td
 											>
-											<td>
-												<span
-													class="badge"
-													style="background:#e0f2fe; color:#0284c7; font-size:0.7rem;"
-												>
-													{p.source_fund === "bank"
-														? "🏦 Transfer Bank"
-														: "💵 Kas Tunai"}
-												</span>
-											</td>
 											<td
 												style="color:#475569; font-size:0.78rem;"
 												>{p.notes || "-"}</td
@@ -3612,12 +4438,18 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 	<div class="modal-overlay" role="dialog" aria-modal="true">
 		<div class="modal">
 			<div class="modal-head">
-				<h2>{isBoss ? "Bayar Tagihan / ACC Langsung" : "Pengajuan Pembayaran (Minta ACC Atasan)"}</h2>
+				<h2>
+					{isBoss
+						? "Bayar Tagihan / ACC Langsung"
+						: "Pengajuan Pembayaran (Minta ACC Atasan)"}
+				</h2>
 				<button class="btn-close" onclick={closePay}>✕</button>
 			</div>
 			<form
 				method="POST"
-				action="?pt={data.currentCompany?.code || 'ART'}&/{isBoss ? 'payDebt' : 'requestApproval'}"
+				action="?pt={data.currentCompany?.code || 'ART'}&/{isBoss
+					? 'payDebt'
+					: 'requestApproval'}"
 				use:enhance={() => {
 					return async ({ result, update }) => {
 						if (result.type === "success") {
@@ -3633,7 +4465,7 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 								notify(
 									"success",
 									"Pengajuan Terkirim! 📨",
-									"Pengajuan pembayaran telah dikirim ke Pak Denny (menu Menunggu ACC).",
+									"Pengajuan pembayaran telah dikirim ke Pak Danny (menu Menunggu ACC).",
 								);
 								if (soundEnabled) sound.playAman();
 							}
@@ -3650,7 +4482,12 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						>
 							<span>ℹ️</span>
 							<span>
-								Pengajuan ini akan masuk ke menu <strong>Menunggu ACC</strong> untuk disetujui oleh <strong>Pak Denny (Atasan)</strong> terlebih dahulu sebelum berpindah ke menu Sudah Dibayar.
+								Pengajuan ini akan masuk ke menu <strong
+									>Menunggu ACC</strong
+								>
+								untuk disetujui oleh
+								<strong>Pak Danny (Atasan)</strong> terlebih dahulu
+								sebelum berpindah ke menu Sudah Dibayar.
 							</span>
 						</div>
 					{/if}
@@ -3672,16 +4509,24 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					<!-- Tanggal & Nominal dengan Format Rupiah & Titik -->
 					<div class="field-grid">
 						<div class="field">
-							<label>{isBoss ? "Tanggal Bayar" : "Tanggal Rencana Bayar"}</label>
+							<label
+								>{isBoss
+									? "Tanggal Bayar"
+									: "Tanggal Rencana Bayar"}</label
+							>
 							<input
 								type="date"
 								name="payment_date"
-								value={new Date().toISOString().split("T")[0]}
+								value={todayISODate}
 								required
 							/>
 						</div>
 						<div class="field">
-							<label>{isBoss ? "Jumlah Dibayar" : "Jumlah Diajukan"}</label>
+							<label
+								>{isBoss
+									? "Jumlah Dibayar"
+									: "Jumlah Diajukan"}</label
+							>
 							<div class="money-input-wrapper">
 								<span class="currency-prefix green">Rp.</span>
 								<input
@@ -3715,14 +4560,17 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					<!-- Catatan opsional -->
 					<div class="field">
 						<label
-							>{isBoss ? "Catatan Pembayaran" : "Catatan / Pesan untuk Atasan"} <span style="color:#94a3b8"
-								>(opsional)</span
-							></label
+							>{isBoss
+								? "Catatan Pembayaran"
+								: "Catatan / Pesan untuk Atasan"}
+							<span style="color:#94a3b8">(opsional)</span></label
 						>
 						<input
 							type="text"
 							name="notes"
-							placeholder={isBoss ? "Misal: Pembayaran via Transfer..." : "Misal: Mohon di-ACC untuk pelunasan tempo hari ini..."}
+							placeholder={isBoss
+								? "Misal: Pembayaran via Transfer..."
+								: "Misal: Mohon di-ACC untuk pelunasan tempo hari ini..."}
 						/>
 					</div>
 				</div>
@@ -3733,9 +4581,13 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					<button
 						type="submit"
 						class="btn-primary"
-						style="background:{isBoss ? '#16a34a' : '#2563eb'}; font-weight:700;"
+						style="background:{isBoss
+							? '#16a34a'
+							: '#2563eb'}; font-weight:700;"
 					>
-						{isBoss ? "Konfirmasi Bayar 💵" : "Kirim Pengajuan ke Atasan (Minta ACC) 📨"}
+						{isBoss
+							? "Konfirmasi Bayar 💵"
+							: "Kirim Pengajuan ke Atasan (Minta ACC) 📨"}
 					</button>
 				</div>
 			</form>
@@ -3743,27 +4595,39 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 	</div>
 {/if}
 
-<!-- ============ MODAL: ACC & SELESAIKAN PEMBAYARAN (KHUSUS ATASAN) ============ -->
+<!-- ============ MODAL: ACC & SELESAIKAN PEMBAYARAN (ATASAN / ACC BY WA ADMIN) ============ -->
 {#if showApproveModal && approveTargetDebt}
 	<div class="modal-overlay" role="dialog" aria-modal="true">
-		<div class="modal" style="max-width:460px;">
-			<div class="modal-head" style="background:#f0fdf4; border-bottom:1px solid #bbf7d0;">
-				<h2 style="color:#166534; display:flex; align-items:center; gap:0.4rem;">
-					<span>✅</span> Konfirmasi ACC Pembayaran
+		<div class="modal" style="max-width:480px;">
+			<div
+				class="modal-head"
+				style="background:#f0fdf4; border-bottom:1px solid #bbf7d0;"
+			>
+				<h2
+					style="color:#166534; display:flex; align-items:center; gap:0.4rem;"
+				>
+					<span>✅</span>
+					{isWaApproval
+						? "Konfirmasi ACC via WhatsApp"
+						: "Konfirmasi ACC Pembayaran"}
 				</h2>
 				<button class="btn-close" onclick={closeApproveModal}>✕</button>
 			</div>
 			<form
 				method="POST"
-				action="?pt={data.currentCompany?.code || 'ART'}&/approveDebtPayment"
+				action="?pt={data.currentCompany?.code ||
+					'ART'}&/approveDebtPayment"
 				use:enhance={() => {
 					return async ({ result, update }) => {
 						if (result.type === "success") {
+							const wasWa = isWaApproval;
 							closeApproveModal();
 							notify(
 								"success",
-								"ACC Berhasil & Lunas! 🎉",
-								"Tagihan telah disetujui dan otomatis dipindahkan ke menu Sudah Dibayar.",
+								wasWa
+									? "ACC via WhatsApp Berhasil! 💬✅"
+									: "ACC Berhasil & Lunas! 🎉",
+								"Tagihan telah disetujui sesuai tanggal ACC dan otomatis masuk ke menu Sudah Dibayar.",
 							);
 							if (soundEnabled) sound.playAman();
 						}
@@ -3771,52 +4635,165 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					};
 				}}
 			>
-				<input type="hidden" name="debt_id" value={approveTargetDebt.id} />
+				<input
+					type="hidden"
+					name="debt_id"
+					value={approveTargetDebt.id}
+				/>
+				<input
+					type="hidden"
+					name="approval_method"
+					value={isWaApproval ? "whatsapp" : "direct"}
+				/>
 				<div class="modal-body">
-					<div class="debt-info-box" style="border-left:4px solid #16a34a;">
+					<div
+						class="debt-info-box"
+						style="border-left:4px solid #16a34a;"
+					>
 						<div class="name">{approveTargetDebt.contact_name}</div>
 						<div class="desc">{approveTargetDebt.description}</div>
-						<div style="font-size:0.75rem; color:#64748b; margin-top:0.25rem;">
-							No Bon: <strong style="color:#334155;">{approveTargetDebt.invoice_no || "-"}</strong> • Perusahaan: <strong style="color:#334155;">{approveTargetDebt.company_code || data.currentCompany?.code}</strong>
+						<div
+							style="font-size:0.75rem; color:#64748b; margin-top:0.25rem;"
+						>
+							No Bon: <strong style="color:#334155;"
+								>{approveTargetDebt.invoice_no || "-"}</strong
+							>
+							• Tgl Nota:
+							<strong style="color:#334155;"
+								>{approveTargetDebt.invoice_date || "-"}</strong
+							>
+							• PT:
+							<strong style="color:#334155;"
+								>{approveTargetDebt.company_code ||
+									data.currentCompany?.code}</strong
+							>
 						</div>
 					</div>
 
-					<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:0.85rem 1rem; margin:1rem 0; display:flex; flex-direction:column; gap:0.45rem;">
-						<div style="display:flex; justify-content:space-between; font-size:0.82rem; color:#64748b;">
-							<span>Nominal Diajukan:</span>
-							<strong style="color:#16a34a; font-size:1.05rem;">{rp(approveTargetDebt.pending_amount || approveTargetDebt.remaining_amount)}</strong>
+					<div
+						style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:0.85rem 1rem; margin:1rem 0; display:flex; flex-direction:column; gap:0.55rem;"
+					>
+						<div
+							style="display:flex; justify-content:space-between; font-size:0.82rem; color:#64748b;"
+						>
+							<span>Nominal Disetujui (ACC):</span>
+							<strong style="color:#16a34a; font-size:1.05rem;"
+								>{rp(
+									approveTargetDebt.pending_amount ||
+										approveTargetDebt.remaining_amount,
+								)}</strong
+							>
 						</div>
-						<div style="display:flex; justify-content:space-between; font-size:0.78rem; color:#64748b;">
-							<span>Rencana Tanggal Bayar:</span>
-							<strong style="color:#334155;">{approveTargetDebt.pending_payment_date || new Date().toISOString().split('T')[0]}</strong>
+						<div
+							style="display:flex; justify-content:space-between; font-size:0.78rem; color:#64748b;"
+						>
+							<span>Tanggal Nota / Bon:</span>
+							<strong style="color:#334155;"
+								>{approveTargetDebt.invoice_date || "-"}</strong
+							>
 						</div>
-						<div style="display:flex; justify-content:space-between; font-size:0.78rem; color:#64748b;">
-							<span>Sumber Kas / Dana:</span>
-							<strong style="color:#334155;">{approveTargetDebt.pending_source_fund || "Tunai"}</strong>
-						</div>
-						<div style="display:flex; justify-content:space-between; font-size:0.78rem; color:#64748b;">
+						<div
+							style="display:flex; justify-content:space-between; font-size:0.78rem; color:#64748b;"
+						>
 							<span>Diajukan Oleh:</span>
-							<strong style="color:#334155;">{approveTargetDebt.pending_by || "Petugas Keuangan"}</strong>
+							<strong style="color:#334155;"
+								>{approveTargetDebt.pending_by ||
+									"Petugas Keuangan"} (Tgl Ajuan: {approveTargetDebt.pending_payment_date ||
+									"-"})</strong
+							>
 						</div>
 						{#if approveTargetDebt.pending_notes}
-							<div style="margin-top:0.35rem; padding-top:0.35rem; border-top:1px dashed #cbd5e1; font-size:0.75rem; color:#475569;">
+							<div
+								style="margin-top:0.25rem; padding-top:0.35rem; border-top:1px dashed #cbd5e1; font-size:0.75rem; color:#475569;"
+							>
 								<em>"{approveTargetDebt.pending_notes}"</em>
 							</div>
 						{/if}
 					</div>
 
-					<div style="font-size:0.8rem; color:#475569; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:8px; padding:0.6rem 0.8rem;">
-						💡 Dengan menyetujui (ACC), pengeluaran sebesar <strong style="color:#166534;">{rp(approveTargetDebt.pending_amount || approveTargetDebt.remaining_amount)}</strong> akan resmi dicatat dan status tagihan langsung menjadi <strong>Sudah Dibayar</strong>.
+					<!-- Tanggal Resmi ACC / Pembayaran (mengikuti tanggal saat di-ACC, bukan tanggal menunggu ACC) -->
+					<div class="field" style="margin-bottom:0.85rem;">
+						<label
+							for="approve-payment-date"
+							style="font-size:0.82rem; font-weight:700; color:#1e293b; display:block; margin-bottom:0.3rem;"
+						>
+							📅 Tanggal ACC / Tanggal Bayar (Tercatat di Sudah
+							Dibayar)
+						</label>
+						<input
+							id="approve-payment-date"
+							type="date"
+							name="payment_date"
+							bind:value={approvePaymentDate}
+							required
+							style="width:100%; padding:0.55rem 0.75rem; border:1.5px solid #86efac; border-radius:8px; font-size:0.9rem; font-weight:700; color:#166534; background:#f0fdf4;"
+						/>
+						<div
+							style="font-size:0.72rem; color:#64748b; margin-top:0.2rem;"
+						>
+							* Otomatis mengikuti tanggal hari ini saat di-ACC
+							(bukan tanggal saat pengajuan).
+						</div>
+					</div>
+
+					{#if isWaApproval}
+						<div class="field" style="margin-bottom:0.85rem;">
+							<label
+								for="wa-approver-select"
+								style="font-size:0.82rem; font-weight:700; color:#1e293b; display:block; margin-bottom:0.3rem;"
+							>
+								💬 Dikonfirmasi via WhatsApp Oleh:
+							</label>
+							<select
+								id="wa-approver-select"
+								name="wa_approver"
+								bind:value={waApproverName}
+								style="width:100%; padding:0.55rem 0.75rem; border:1.5px solid #cbd5e1; border-radius:8px; font-size:0.88rem; font-weight:600; color:#0f172a; background:#ffffff;"
+							>
+								<option value="Pak Danny / Pak Carmen"
+									>Pak Danny / Pak Carmen (via WhatsApp)</option
+								>
+								<option value="Pak Danny"
+									>Pak Danny (via WhatsApp)</option
+								>
+								<option value="Pak Carmen"
+									>Pak Carmen (via WhatsApp)</option
+								>
+							</select>
+						</div>
+					{/if}
+
+					<div
+						style="font-size:0.8rem; color:#475569; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:8px; padding:0.6rem 0.8rem;"
+					>
+						💡 Dengan menekan tombol di bawah, pengeluaran sebesar <strong
+							style="color:#166534;"
+							>{rp(
+								approveTargetDebt.pending_amount ||
+									approveTargetDebt.remaining_amount,
+							)}</strong
+						>
+						akan resmi dicatat pada tanggal
+						<strong style="color:#166534;"
+							>{approvePaymentDate}</strong
+						>
+						di menu <strong>Sudah Dibayar</strong>.
 					</div>
 				</div>
 				<div class="modal-foot">
-					<button type="button" class="btn-ghost" onclick={closeApproveModal}>Batal</button>
+					<button
+						type="button"
+						class="btn-ghost"
+						onclick={closeApproveModal}>Batal</button
+					>
 					<button
 						type="submit"
 						class="btn-primary"
 						style="background:#16a34a; font-weight:700;"
 					>
-						Ya, ACC & Bayar Sekarang ✨
+						{isWaApproval
+							? "✅ Konfirmasi ACC via WhatsApp"
+							: "Ya, ACC & Bayar Sekarang ✨"}
 					</button>
 				</div>
 			</form>
@@ -3828,15 +4805,21 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 {#if showRejectModal && rejectTargetDebt}
 	<div class="modal-overlay" role="dialog" aria-modal="true">
 		<div class="modal" style="max-width:460px;">
-			<div class="modal-head" style="background:#fef2f2; border-bottom:1px solid #fecaca;">
-				<h2 style="color:#b91c1c; display:flex; align-items:center; gap:0.4rem;">
+			<div
+				class="modal-head"
+				style="background:#fef2f2; border-bottom:1px solid #fecaca;"
+			>
+				<h2
+					style="color:#b91c1c; display:flex; align-items:center; gap:0.4rem;"
+				>
 					<span>❌</span> Tolak Pengajuan Pembayaran
 				</h2>
 				<button class="btn-close" onclick={closeRejectModal}>✕</button>
 			</div>
 			<form
 				method="POST"
-				action="?pt={data.currentCompany?.code || 'ART'}&/rejectDebtApproval"
+				action="?pt={data.currentCompany?.code ||
+					'ART'}&/rejectDebtApproval"
 				use:enhance={() => {
 					return async ({ result, update }) => {
 						if (result.type === "success") {
@@ -3852,18 +4835,35 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 					};
 				}}
 			>
-				<input type="hidden" name="debt_id" value={rejectTargetDebt.id} />
+				<input
+					type="hidden"
+					name="debt_id"
+					value={rejectTargetDebt.id}
+				/>
 				<div class="modal-body">
-					<div class="debt-info-box" style="border-left:4px solid #ef4444;">
+					<div
+						class="debt-info-box"
+						style="border-left:4px solid #ef4444;"
+					>
 						<div class="name">{rejectTargetDebt.contact_name}</div>
 						<div class="desc">{rejectTargetDebt.description}</div>
-						<div style="font-size:0.75rem; color:#64748b; margin-top:0.25rem;">
-							Nominal Diajukan: <strong style="color:#b91c1c;">{rp(rejectTargetDebt.pending_amount || rejectTargetDebt.remaining_amount)}</strong>
+						<div
+							style="font-size:0.75rem; color:#64748b; margin-top:0.25rem;"
+						>
+							Nominal Diajukan: <strong style="color:#b91c1c;"
+								>{rp(
+									rejectTargetDebt.pending_amount ||
+										rejectTargetDebt.remaining_amount,
+								)}</strong
+							>
 						</div>
 					</div>
 
 					<div class="field" style="margin-top:1rem;">
-						<label for="reject-reason" style="font-size:0.85rem; font-weight:700; color:#1e293b; display:block; margin-bottom:0.35rem;">
+						<label
+							for="reject-reason"
+							style="font-size:0.85rem; font-weight:700; color:#1e293b; display:block; margin-bottom:0.35rem;"
+						>
 							Alasan Penolakan / Catatan untuk Staff:
 						</label>
 						<textarea
@@ -3876,12 +4876,20 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 						></textarea>
 					</div>
 
-					<div style="font-size:0.78rem; color:#64748b; margin-top:0.6rem;">
-						ℹ️ Tagihan ini akan dikeluarkan dari antrean ACC dan dikembalikan ke menu <strong>OS Hutang Aktif</strong> dengan status belum lunas.
+					<div
+						style="font-size:0.78rem; color:#64748b; margin-top:0.6rem;"
+					>
+						ℹ️ Tagihan ini akan dikeluarkan dari antrean ACC dan
+						dikembalikan ke menu <strong>OS Hutang Aktif</strong> dengan
+						status belum lunas.
 					</div>
 				</div>
 				<div class="modal-foot">
-					<button type="button" class="btn-ghost" onclick={closeRejectModal}>Batal</button>
+					<button
+						type="button"
+						class="btn-ghost"
+						onclick={closeRejectModal}>Batal</button
+					>
 					<button
 						type="submit"
 						class="btn-primary"
@@ -3968,7 +4976,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 	.sortable-th {
 		cursor: pointer;
 		user-select: none;
-		transition: background 0.15s, color 0.15s;
+		transition:
+			background 0.15s,
+			color 0.15s;
 	}
 	.sortable-th:hover {
 		background: #e2e8f0 !important;
@@ -5031,7 +6041,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 		border-radius: 16px;
 		padding: 1rem 1.25rem;
 		margin-bottom: 1.15rem;
-		box-shadow: 0 4px 20px -4px rgba(244, 63, 94, 0.06), 0 2px 6px -2px rgba(0, 0, 0, 0.03);
+		box-shadow:
+			0 4px 20px -4px rgba(244, 63, 94, 0.06),
+			0 2px 6px -2px rgba(0, 0, 0, 0.03);
 		transition: all 0.25s ease;
 	}
 	:global(.dark) .modern-filter-box {
@@ -5057,7 +6069,7 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 	.modern-filter-icon {
 		font-size: 1.85rem;
 		line-height: 1;
-		filter: drop-shadow(0 2px 4px rgba(0,0,0,0.06));
+		filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.06));
 	}
 
 	.modern-filter-meta {
@@ -5203,8 +6215,14 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 	}
 
 	@keyframes slideDown {
-		from { opacity: 0; transform: translateY(-6px); }
-		to { opacity: 1; transform: translateY(0); }
+		from {
+			opacity: 0;
+			transform: translateY(-6px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
 	.custom-tab-strip {
@@ -5255,7 +6273,8 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 		color: #cbd5e1;
 	}
 
-	.custom-select-box, .custom-input-box {
+	.custom-select-box,
+	.custom-input-box {
 		padding: 0.4rem 0.7rem;
 		border-radius: 8px;
 		border: 1.5px solid #cbd5e1;
@@ -5265,7 +6284,8 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 		font-weight: 600;
 		outline: none;
 	}
-	:global(.dark) .custom-select-box, :global(.dark) .custom-input-box {
+	:global(.dark) .custom-select-box,
+	:global(.dark) .custom-input-box {
 		background: #12081d;
 		border-color: #38194e;
 		color: #f8fafc;
@@ -5415,7 +6435,6 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 		color: #f43f5e;
 	}
 
-
 	.single-pt-grid {
 		display: grid;
 		grid-template-columns: 1fr;
@@ -5425,7 +6444,9 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 		padding: 1.25rem 1.5rem;
 		border-radius: 14px;
 		background: #ffffff;
-		box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.05), 0 2px 6px -2px rgba(0, 0, 0, 0.03);
+		box-shadow:
+			0 4px 15px -3px rgba(0, 0, 0, 0.05),
+			0 2px 6px -2px rgba(0, 0, 0, 0.03);
 	}
 	.card-period-pill {
 		font-size: 0.8rem;
@@ -5436,5 +6457,4 @@ Mohon dapat segera diperiksa dan di-ACC di program Rekapan Keuangan. Terima kasi
 		border-radius: 9999px;
 		border: 1px solid #e2e8f0;
 	}
-
 </style>

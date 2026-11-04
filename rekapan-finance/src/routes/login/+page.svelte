@@ -29,7 +29,16 @@
 	} | null>(null);
 
 	let rolesStatus = $derived(
-		customRolesStatus || data?.rolesStatus || { adminAvailable: true, bossAvailable: true, allFull: false, adminCount: 0, bossCount: 0, maxAdmin: 1, maxBoss: 2 }
+		customRolesStatus ||
+			data?.rolesStatus || {
+				adminAvailable: true,
+				bossAvailable: true,
+				allFull: false,
+				adminCount: 0,
+				bossCount: 0,
+				maxAdmin: 1,
+				maxBoss: 2,
+			},
 	);
 
 	// Mode: Login atau Register
@@ -68,9 +77,17 @@
 
 	// Otomatis arahkan pilihan role ke peran yang masih kosong
 	$effect(() => {
-		if (!rolesStatus.adminAvailable && rolesStatus.bossAvailable && regRole === "admin") {
+		if (
+			!rolesStatus.adminAvailable &&
+			rolesStatus.bossAvailable &&
+			regRole === "admin"
+		) {
 			regRole = "boss";
-		} else if (!rolesStatus.bossAvailable && rolesStatus.adminAvailable && regRole === "boss") {
+		} else if (
+			!rolesStatus.bossAvailable &&
+			rolesStatus.adminAvailable &&
+			regRole === "boss"
+		) {
 			regRole = "admin";
 		}
 	});
@@ -86,9 +103,17 @@
 			if (res.ok) {
 				const fresh = await res.json();
 				customRolesStatus = fresh;
-				if (!fresh.adminAvailable && fresh.bossAvailable && regRole === "admin") {
+				if (
+					!fresh.adminAvailable &&
+					fresh.bossAvailable &&
+					regRole === "admin"
+				) {
 					regRole = "boss";
-				} else if (!fresh.bossAvailable && fresh.adminAvailable && regRole === "boss") {
+				} else if (
+					!fresh.bossAvailable &&
+					fresh.adminAvailable &&
+					regRole === "boss"
+				) {
 					regRole = "admin";
 				}
 			}
@@ -125,7 +150,8 @@
 	function handleRegFocus(field: "name" | "username" | "password" | "pin") {
 		if (mascotMode === "success") return;
 		if (field === "name" || field === "username") mascotMode = "username";
-		else if (field === "password") mascotMode = showRegPassword ? "peek" : "password";
+		else if (field === "password")
+			mascotMode = showRegPassword ? "peek" : "password";
 		else if (field === "pin") mascotMode = "pin";
 	}
 
@@ -196,11 +222,15 @@
 
 		// Validasi apakah role masih tersedia
 		if (regRole === "admin" && !rolesStatus.adminAvailable) {
-			triggerShake("Akun Admin sudah terdaftar! Demi keamanan sistem, tidak bisa membuat akun Admin lagi.");
+			triggerShake(
+				"Akun Admin sudah terdaftar! Demi keamanan sistem, tidak bisa membuat akun Admin lagi.",
+			);
 			return;
 		}
 		if (regRole === "boss" && !rolesStatus.bossAvailable) {
-			triggerShake("Kuota akun Boss / Atasan sudah penuh (maksimal 2 akun)! Demi keamanan sistem, tidak bisa membuat akun Boss lagi.");
+			triggerShake(
+				"Kuota akun Boss / Atasan sudah penuh (maksimal 2 akun)! Demi keamanan sistem, tidak bisa membuat akun Boss lagi.",
+			);
 			return;
 		}
 
@@ -247,7 +277,9 @@
 			// Sukses Registrasi!
 			sound.playAman();
 			mascotMode = "success";
-			successMessage = data.message || `Akun ${regRole === "boss" ? "Boss / Atasan" : "Admin"} berhasil didaftarkan! Silakan masuk.`;
+			successMessage =
+				data.message ||
+				`Akun ${regRole === "boss" ? "Boss / Atasan" : "Admin"} berhasil didaftarkan! Silakan masuk.`;
 			username = regUsername;
 			password = "";
 
@@ -365,7 +397,9 @@
 </script>
 
 <svelte:head>
-	<title>{authMode === 'login' ? 'Masuk' : 'Daftar Akun'} - Sistem Rekapan Keuangan</title>
+	<title
+		>{authMode === "login" ? "Masuk" : "Daftar Akun"} - Sistem Rekapan Keuangan</title
+	>
 </svelte:head>
 
 <div class="login-wrapper">
@@ -394,7 +428,9 @@
 			<div class="mascot-wrapper">
 				<CatMascot
 					mode={mascotMode}
-					charCount={authMode === 'register' ? (regUsername.length || regName.length) : username.length}
+					charCount={authMode === "register"
+						? regUsername.length || regName.length
+						: username.length}
 					maxChars={20}
 				/>
 			</div>
@@ -427,7 +463,10 @@
 								mascotMode = "idle";
 							}}
 						>
-							📝 Daftar Akun {#if rolesStatus.allFull}<span class="badge-tab-locked">🔒 Terisi Penuh</span>{/if}
+							📝 Daftar Akun {#if rolesStatus.allFull}<span
+									class="badge-tab-locked"
+									>🔒 Terisi Penuh</span
+								>{/if}
 						</button>
 					</div>
 				{/if}
@@ -452,9 +491,14 @@
 						<!-- Banner Terkunci Jika Kedua Akun (Admin & Boss) Sudah Terisi -->
 						<div class="registration-locked-banner">
 							<div class="locked-icon">🛡️🔒</div>
-							<h2 class="locked-title">Pendaftaran Akun Ditutup</h2>
+							<h2 class="locked-title">
+								Pendaftaran Akun Ditutup
+							</h2>
 							<p class="locked-desc">
-								Akun <strong>Admin Keuangan</strong> dan <strong>Boss / Atasan</strong> sudah terdaftar secara resmi di sistem. Demi keamanan rekapan keuangan, tidak diperkenankan membuat akun tambahan.
+								Akun <strong>Admin Keuangan</strong> dan
+								<strong>Boss / Atasan</strong> sudah terdaftar secara
+								resmi di sistem. Demi keamanan rekapan keuangan,
+								tidak diperkenankan membuat akun tambahan.
 							</p>
 							<button
 								type="button"
@@ -472,24 +516,33 @@
 						<div class="card-header">
 							<h1 class="card-title">Registrasi Akun Baru ✨</h1>
 							<p class="card-desc">
-								Pilih peran yang masih tersedia (maksimal 1 Admin &amp; 2 Boss)
+								Pilih peran yang masih tersedia (maksimal 1
+								Admin &amp; 2 Boss)
 							</p>
 						</div>
 
-						<form onsubmit={handleRegisterSubmit} class="login-form">
+						<form
+							onsubmit={handleRegisterSubmit}
+							class="login-form"
+						>
 							<!-- Pilihan Peran (Role) dengan Status Kunci -->
 							<div class="form-group">
-								<label class="form-label">Pilih Peran / Jabatan</label>
+								<label class="form-label"
+									>Pilih Peran / Jabatan</label
+								>
 								<div class="role-selector-grid">
 									<!-- Card Admin -->
 									<button
 										type="button"
 										class="role-card"
-										class:selected={regRole === "admin" && rolesStatus.adminAvailable}
+										class:selected={regRole === "admin" &&
+											rolesStatus.adminAvailable}
 										class:disabled-role={!rolesStatus.adminAvailable}
 										onclick={() => {
 											if (!rolesStatus.adminAvailable) {
-												triggerShake("Akun Admin sudah terdaftar dan tidak dapat dibuat lagi demi keamanan.");
+												triggerShake(
+													"Akun Admin sudah terdaftar dan tidak dapat dibuat lagi demi keamanan.",
+												);
 											} else {
 												regRole = "admin";
 											}
@@ -497,15 +550,23 @@
 									>
 										<span class="role-icon">🛡️</span>
 										<div class="role-text">
-											<div class="role-title">Admin Keuangan</div>
+											<div class="role-title">
+												Admin Keuangan
+											</div>
 											<div class="role-sub">
-												{rolesStatus.adminAvailable ? "Input bon & saldo harian" : "Akun sudah terdaftar"}
+												{rolesStatus.adminAvailable
+													? "Input bon & saldo harian"
+													: "Akun sudah terdaftar"}
 											</div>
 										</div>
 										{#if !rolesStatus.adminAvailable}
-											<span class="role-badge-locked">🔒 Terisi</span>
+											<span class="role-badge-locked"
+												>🔒 Terisi</span
+											>
 										{:else if regRole === "admin"}
-											<span class="role-badge-check">✓</span>
+											<span class="role-badge-check"
+												>✓</span
+											>
 										{/if}
 									</button>
 
@@ -513,11 +574,14 @@
 									<button
 										type="button"
 										class="role-card"
-										class:selected={regRole === "boss" && rolesStatus.bossAvailable}
+										class:selected={regRole === "boss" &&
+											rolesStatus.bossAvailable}
 										class:disabled-role={!rolesStatus.bossAvailable}
 										onclick={() => {
 											if (!rolesStatus.bossAvailable) {
-												triggerShake("Kuota akun Boss sudah penuh (maksimal 2 akun).");
+												triggerShake(
+													"Kuota akun Boss sudah penuh (maksimal 2 akun).",
+												);
 											} else {
 												regRole = "boss";
 											}
@@ -525,13 +589,17 @@
 									>
 										<span class="role-icon">👑</span>
 										<div class="role-text">
-											<div class="role-title">Boss / Atasan</div>
+											<div class="role-title">
+												Boss / Atasan
+											</div>
 											<div class="role-sub">
 												{#if rolesStatus.bossAvailable}
 													{#if (rolesStatus.bossCount ?? 0) > 0}
-														Persetujuan ACC (Sisa 1 slot dari 2 Boss)
+														Persetujuan ACC (Sisa 1
+														slot dari 2 Boss)
 													{:else}
-														Persetujuan ACC & audit (Maks. 2 akun)
+														Persetujuan ACC & audit
+														(Maks. 2 akun)
 													{/if}
 												{:else}
 													Kuota 2 akun sudah penuh
@@ -539,11 +607,17 @@
 											</div>
 										</div>
 										{#if !rolesStatus.bossAvailable}
-											<span class="role-badge-locked">🔒 Penuh (2/2)</span>
+											<span class="role-badge-locked"
+												>🔒 Penuh (2/2)</span
+											>
 										{:else if (rolesStatus.bossCount ?? 0) > 0}
-											<span class="role-badge-quota">1/2 Terisi</span>
+											<span class="role-badge-quota"
+												>1/2 Terisi</span
+											>
 										{:else if regRole === "boss"}
-											<span class="role-badge-check">✓</span>
+											<span class="role-badge-check"
+												>✓</span
+											>
 										{/if}
 									</button>
 								</div>
@@ -560,7 +634,7 @@
 										bind:value={regName}
 										onfocus={() => handleRegFocus("name")}
 										onblur={handleRegBlur}
-										placeholder="Contoh: Budi Santoso / Pak Denny"
+										placeholder="Contoh: Budi Santoso / Pak Danny"
 										required
 									/>
 								</div>
@@ -575,7 +649,8 @@
 										id="reg-username"
 										type="text"
 										bind:value={regUsername}
-										onfocus={() => handleRegFocus("username")}
+										onfocus={() =>
+											handleRegFocus("username")}
 										onblur={handleRegBlur}
 										placeholder="Username unik..."
 										required
@@ -591,9 +666,12 @@
 									<span class="input-icon">🔒</span>
 									<input
 										id="reg-password"
-										type={showRegPassword ? "text" : "password"}
+										type={showRegPassword
+											? "text"
+											: "password"}
 										bind:value={regPassword}
-										onfocus={() => handleRegFocus("password")}
+										onfocus={() =>
+											handleRegFocus("password")}
 										onblur={handleRegBlur}
 										placeholder="Minimal 6 karakter..."
 										required
@@ -604,9 +682,13 @@
 										class="btn-toggle-eye"
 										onclick={() => {
 											showRegPassword = !showRegPassword;
-											mascotMode = showRegPassword ? "peek" : "password";
+											mascotMode = showRegPassword
+												? "peek"
+												: "password";
 										}}
-										title={showRegPassword ? "Sembunyikan password" : "Lihat password"}
+										title={showRegPassword
+											? "Sembunyikan password"
+											: "Lihat password"}
 									>
 										{showRegPassword ? "🙈" : "👁️"}
 									</button>
@@ -615,9 +697,15 @@
 
 							<!-- Input PIN Keamanan 6 Digit -->
 							<div class="form-group">
-								<div style="display:flex; justify-content:space-between; align-items:center;">
-									<label for="reg-pin">PIN Keamanan (6 Digit Angka)</label>
-									<span class="pin-hint-tag">Tepat 6 Angka</span>
+								<div
+									style="display:flex; justify-content:space-between; align-items:center;"
+								>
+									<label for="reg-pin"
+										>PIN Keamanan (6 Digit Angka)</label
+									>
+									<span class="pin-hint-tag"
+										>Tepat 6 Angka</span
+									>
 								</div>
 								<div class="input-icon-wrapper">
 									<span class="input-icon">🔢</span>
@@ -636,8 +724,11 @@
 									<button
 										type="button"
 										class="btn-toggle-eye"
-										onclick={() => (showRegPin = !showRegPin)}
-										title={showRegPin ? "Sembunyikan PIN" : "Lihat PIN"}
+										onclick={() =>
+											(showRegPin = !showRegPin)}
+										title={showRegPin
+											? "Sembunyikan PIN"
+											: "Lihat PIN"}
 									>
 										{showRegPin ? "🙈" : "👁️"}
 									</button>
@@ -647,12 +738,18 @@
 							<button
 								type="submit"
 								class="btn-submit"
-								disabled={isLoading || (regRole === 'admin' && !rolesStatus.adminAvailable) || (regRole === 'boss' && !rolesStatus.bossAvailable)}
+								disabled={isLoading ||
+									(regRole === "admin" &&
+										!rolesStatus.adminAvailable) ||
+									(regRole === "boss" &&
+										!rolesStatus.bossAvailable)}
 							>
 								{#if isLoading}
 									<span class="spinner"></span> Mendaftarkan...
 								{:else}
-									Daftar Akun {regRole === "boss" ? "Boss" : "Admin"} ✨
+									Daftar Akun {regRole === "boss"
+										? "Boss"
+										: "Admin"} ✨
 								{/if}
 							</button>
 
@@ -676,7 +773,8 @@
 					<div class="card-header">
 						<h1 class="card-title">Masuk ke Sistem 🌸</h1>
 						<p class="card-desc">
-							Silakan masukkan username dan password Anda untuk melanjutkan
+							Silakan masukkan username dan password Anda untuk
+							melanjutkan
 						</p>
 					</div>
 
@@ -741,7 +839,10 @@
 
 						<div class="auth-switch-link">
 							{#if rolesStatus.allFull}
-								<span class="secure-badge">🛡️ Pendaftaran ditutup &bull; Akun Admin &amp; Boss telah diamankan</span>
+								<span class="secure-badge"
+									>🛡️ Pendaftaran ditutup &bull; Akun Admin
+									&amp; Boss telah diamankan</span
+								>
 							{:else}
 								Belum punya akun?
 								<button
@@ -877,7 +978,11 @@
 			#fed7e2 100%
 		);
 		transition: background 0.3s ease;
-		font-family: "Inter", system-ui, -apple-system, sans-serif;
+		font-family:
+			"Inter",
+			system-ui,
+			-apple-system,
+			sans-serif;
 	}
 
 	:global([data-theme="dark"]) .login-wrapper {
