@@ -24,6 +24,38 @@ function formatIndoDate(isoDate: string): string {
 	}).toUpperCase();
 }
 
+function wrapExcelText(text: string, maxChars = 42): { formatted: string; lineCount: number } {
+	if (!text) return { formatted: '-', lineCount: 1 };
+	const rawParagraphs = String(text).split(/\r?\n/);
+	const wrappedLines: string[] = [];
+
+	for (const para of rawParagraphs) {
+		const words = para.trim().split(/\s+/);
+		if (words.length === 0 || (words.length === 1 && words[0] === '')) {
+			wrappedLines.push('');
+			continue;
+		}
+		let currentLine = '';
+		for (const word of words) {
+			if (!currentLine) {
+				currentLine = word;
+			} else if ((currentLine + ' ' + word).length <= maxChars) {
+				currentLine += ' ' + word;
+			} else {
+				wrappedLines.push(currentLine);
+				currentLine = word;
+			}
+		}
+		if (currentLine) wrappedLines.push(currentLine);
+	}
+
+	const lineCount = Math.max(1, wrappedLines.length);
+	return {
+		formatted: wrappedLines.join('\n'),
+		lineCount
+	};
+}
+
 export const GET: RequestHandler = async ({ url }) => {
 	const db = await getDb();
 	const companyCode = url.searchParams.get('pt') || 'ART';
@@ -120,12 +152,12 @@ export const GET: RequestHandler = async ({ url }) => {
 		ws.columns = [
 			{ width: 3 },  // A (margin)
 			{ width: 6 },  // B: No
-			{ width: 28 }, // C: Pihak / Penerima (Supplier)
-			{ width: 16 }, // D: No. Nota / Bon
-			{ width: 15 }, // E: Tgl Nota / Bon
-			{ width: 15 }, // F: Tgl Bayar / ACC
-			{ width: 45 }, // G: Keterangan / Keperluan Pembayaran
-			{ width: 20 }  // H: Jumlah Dibayar
+			{ width: 26 }, // C: Pihak / Penerima (Supplier)
+			{ width: 15 }, // D: No. Nota / Bon
+			{ width: 14 }, // E: Tgl Nota / Bon
+			{ width: 14 }, // F: Tgl Bayar / ACC
+			{ width: 38 }, // G: Keterangan / Keperluan Pembayaran (Auto-wrap turun ke bawah)
+			{ width: 18 }  // H: Jumlah Dibayar
 		];
 
 		// Judul Row 2
@@ -154,7 +186,8 @@ export const GET: RequestHandler = async ({ url }) => {
 			cell.font = { bold: true, size: 10, color: { argb: 'FF0F172A' }, name: 'Calibri' };
 			cell.alignment = {
 				vertical: 'middle',
-				horizontal: idx === 0 || idx === 2 || idx === 3 || idx === 4 ? 'center' : idx === 6 ? 'right' : 'left'
+				horizontal: idx === 0 || idx === 2 || idx === 3 || idx === 4 ? 'center' : idx === 6 ? 'right' : 'left',
+				wrapText: true
 			};
 			cell.fill = {
 				type: 'pattern',
@@ -180,36 +213,44 @@ export const GET: RequestHandler = async ({ url }) => {
 
 			// No
 			row.getCell('B').value = idx + 1;
-			row.getCell('B').alignment = { horizontal: 'center' };
+			row.getCell('B').alignment = { vertical: 'middle', horizontal: 'center' };
 
 			// Pihak / Supplier
-			row.getCell('C').value = p.contact_name;
+			const contactWrap = wrapExcelText(p.contact_name, 26);
+			row.getCell('C').value = contactWrap.formatted;
 			row.getCell('C').font = { bold: true, size: 10, name: 'Calibri' };
+			row.getCell('C').alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
 
 			// No. Nota / Bon
 			row.getCell('D').value = p.invoice_no || '-';
-			row.getCell('D').alignment = { horizontal: 'center' };
+			row.getCell('D').alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
 
 			// Tgl Nota / Bon
 			row.getCell('E').value = p.invoice_date || '-';
-			row.getCell('E').alignment = { horizontal: 'center' };
+			row.getCell('E').alignment = { vertical: 'middle', horizontal: 'center' };
 
 			// Tgl Bayar / ACC
 			row.getCell('F').value = p.payment_date;
-			row.getCell('F').alignment = { horizontal: 'center' };
+			row.getCell('F').alignment = { vertical: 'middle', horizontal: 'center' };
 			row.getCell('F').font = { bold: true, size: 10, name: 'Calibri' };
 
-			// Keterangan
+			// Keterangan (otomatis turun ke bawah jika melebihi batas karakter cell)
 			const fullDesc = p.notes && p.notes !== p.debt_description
 				? `${p.debt_description} (${p.notes})`
 				: p.debt_description;
-			row.getCell('G').value = fullDesc;
+			const descWrap = wrapExcelText(fullDesc, 42);
+			row.getCell('G').value = descWrap.formatted;
+			row.getCell('G').alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
 
 			// Jumlah Dibayar
 			row.getCell('H').value = amount;
 			row.getCell('H').numFmt = '#,##0';
-			row.getCell('H').alignment = { horizontal: 'right' };
+			row.getCell('H').alignment = { vertical: 'middle', horizontal: 'right' };
 			row.getCell('H').font = { bold: true, size: 10, color: { argb: 'FF15803D' }, name: 'Calibri' };
+
+			// Sesuaikan tinggi baris otomatis mengikuti jumlah baris teks keterangan
+			const maxLines = Math.max(descWrap.lineCount, contactWrap.lineCount);
+			row.height = Math.max(20, maxLines * 14.5 + 6);
 
 			// Borders
 			for (let c = 2; c <= 8; c++) {

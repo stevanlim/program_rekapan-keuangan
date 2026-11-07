@@ -19,6 +19,38 @@ function getAgingBucket(daysOverdue: number): string {
 	return '>120 Hari';
 }
 
+function wrapExcelText(text: string, maxChars = 40): { formatted: string; lineCount: number } {
+	if (!text) return { formatted: '-', lineCount: 1 };
+	const rawParagraphs = String(text).split(/\r?\n/);
+	const wrappedLines: string[] = [];
+
+	for (const para of rawParagraphs) {
+		const words = para.trim().split(/\s+/);
+		if (words.length === 0 || (words.length === 1 && words[0] === '')) {
+			wrappedLines.push('');
+			continue;
+		}
+		let currentLine = '';
+		for (const word of words) {
+			if (!currentLine) {
+				currentLine = word;
+			} else if ((currentLine + ' ' + word).length <= maxChars) {
+				currentLine += ' ' + word;
+			} else {
+				wrappedLines.push(currentLine);
+				currentLine = word;
+			}
+		}
+		if (currentLine) wrappedLines.push(currentLine);
+	}
+
+	const lineCount = Math.max(1, wrappedLines.length);
+	return {
+		formatted: wrappedLines.join('\n'),
+		lineCount
+	};
+}
+
 export const GET: RequestHandler = async ({ url }) => {
 	const db = await getDb();
 	const companyCode = url.searchParams.get('pt') || 'ART';
@@ -151,39 +183,49 @@ export const GET: RequestHandler = async ({ url }) => {
 			totalPending += pendAmt;
 
 			row.getCell('B').value = idx + 1;
-			row.getCell('B').alignment = { horizontal: 'center' };
+			row.getCell('B').alignment = { vertical: 'middle', horizontal: 'center' };
 
-			row.getCell('C').value = d.contact_name;
+			const contactWrap = wrapExcelText(d.contact_name, 26);
+			row.getCell('C').value = contactWrap.formatted;
 			row.getCell('C').font = { bold: true, size: 10, name: 'Calibri' };
+			row.getCell('C').alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
 
 			row.getCell('D').value = d.contact_type === 'non_vendor' ? 'Non-Vendor' : 'Supplier';
-			row.getCell('D').alignment = { horizontal: 'center' };
+			row.getCell('D').alignment = { vertical: 'middle', horizontal: 'center' };
 
 			row.getCell('E').value = d.invoice_no || '-';
-			row.getCell('E').alignment = { horizontal: 'center' };
+			row.getCell('E').alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
 
 			row.getCell('F').value = d.invoice_date;
-			row.getCell('F').alignment = { horizontal: 'center' };
+			row.getCell('F').alignment = { vertical: 'middle', horizontal: 'center' };
 
 			row.getCell('G').value = `${getAgingBucket(daysOverdue)} (${daysOverdue} hr)`;
-			row.getCell('G').alignment = { horizontal: 'center' };
+			row.getCell('G').alignment = { vertical: 'middle', horizontal: 'center' };
 			row.getCell('G').font = { bold: true, size: 9.5, name: 'Calibri' };
 
-			row.getCell('H').value = d.description;
+			const descWrap = wrapExcelText(d.description, 40);
+			row.getCell('H').value = descWrap.formatted;
+			row.getCell('H').alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
 
 			row.getCell('I').value = amt;
 			row.getCell('I').numFmt = '#,##0';
-			row.getCell('I').alignment = { horizontal: 'right' };
+			row.getCell('I').alignment = { vertical: 'middle', horizontal: 'right' };
 
 			row.getCell('J').value = pendAmt;
 			row.getCell('J').numFmt = '#,##0';
-			row.getCell('J').alignment = { horizontal: 'right' };
+			row.getCell('J').alignment = { vertical: 'middle', horizontal: 'right' };
 			row.getCell('J').font = { bold: true, size: 10, color: { argb: 'FFB45309' }, name: 'Calibri' };
 
 			row.getCell('K').value = d.pending_expires_fmt || d.pending_payment_date || d.invoice_date;
-			row.getCell('K').alignment = { horizontal: 'center' };
+			row.getCell('K').alignment = { vertical: 'middle', horizontal: 'center' };
 
-			row.getCell('L').value = d.pending_notes ? `${d.pending_notes} (Oleh: ${d.pending_by})` : `Diajukan oleh: ${d.pending_by}`;
+			const rawNotes = d.pending_notes ? `${d.pending_notes} (Oleh: ${d.pending_by})` : `Diajukan oleh: ${d.pending_by}`;
+			const notesWrap = wrapExcelText(rawNotes, 28);
+			row.getCell('L').value = notesWrap.formatted;
+			row.getCell('L').alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+
+			const maxLines = Math.max(descWrap.lineCount, notesWrap.lineCount, contactWrap.lineCount);
+			row.height = Math.max(20, maxLines * 14.5 + 6);
 
 			for (let c = 2; c <= 12; c++) {
 				const cell = row.getCell(c);

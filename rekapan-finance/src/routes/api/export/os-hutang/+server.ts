@@ -4,6 +4,38 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { RequestHandler } from './$types';
 
+function wrapExcelText(text: string, maxChars = 40): { formatted: string; lineCount: number } {
+	if (!text) return { formatted: '-', lineCount: 1 };
+	const rawParagraphs = String(text).split(/\r?\n/);
+	const wrappedLines: string[] = [];
+
+	for (const para of rawParagraphs) {
+		const words = para.trim().split(/\s+/);
+		if (words.length === 0 || (words.length === 1 && words[0] === '')) {
+			wrappedLines.push('');
+			continue;
+		}
+		let currentLine = '';
+		for (const word of words) {
+			if (!currentLine) {
+				currentLine = word;
+			} else if ((currentLine + ' ' + word).length <= maxChars) {
+				currentLine += ' ' + word;
+			} else {
+				wrappedLines.push(currentLine);
+				currentLine = word;
+			}
+		}
+		if (currentLine) wrappedLines.push(currentLine);
+	}
+
+	const lineCount = Math.max(1, wrappedLines.length);
+	return {
+		formatted: wrappedLines.join('\n'),
+		lineCount
+	};
+}
+
 export const GET: RequestHandler = async ({ url }) => {
 	const db = await getDb();
 	const companyCode = url.searchParams.get('pt') || 'ART';
@@ -169,26 +201,29 @@ export const GET: RequestHandler = async ({ url }) => {
 				// Kolom B: Nama Supplier (tampil di baris pertama group)
 				row.getCell('B').value = itemIdx === 0 ? contactName : '';
 				row.getCell('B').font = { bold: itemIdx === 0, size: 10, name: 'Calibri' };
+				row.getCell('B').alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
 
 				// Kolom C: Tanggal Bon
 				row.getCell('C').value = item.invoice_date;
-				row.getCell('C').alignment = { horizontal: 'center' };
+				row.getCell('C').alignment = { vertical: 'middle', horizontal: 'center' };
 
 				// Kolom D: No Inv
 				row.getCell('D').value = item.invoice_no || '';
-				row.getCell('D').alignment = { horizontal: 'center' };
+				row.getCell('D').alignment = { vertical: 'middle', horizontal: 'center' };
 
 				// Kolom E: Jumlah
 				row.getCell('E').value = rem;
 				row.getCell('E').numFmt = '#,##0';
-				row.getCell('E').alignment = { horizontal: 'right' };
+				row.getCell('E').alignment = { vertical: 'middle', horizontal: 'right' };
 
-				// Kolom F: Keterangan
-				row.getCell('F').value = item.description;
+				// Kolom F: Keterangan (Otomatis turun ke bawah jika melebihi batas karakter cell)
+				const descWrap = wrapExcelText(item.description, 40);
+				row.getCell('F').value = descWrap.formatted;
+				row.getCell('F').alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
 
 				// Kolom G: Interval Hari
 				row.getCell('G').value = days;
-				row.getCell('G').alignment = { horizontal: 'center' };
+				row.getCell('G').alignment = { vertical: 'middle', horizontal: 'center' };
 
 				// Aging Columns
 				const agingCols = [
@@ -204,8 +239,10 @@ export const GET: RequestHandler = async ({ url }) => {
 					const cell = row.getCell(col);
 					cell.value = val;
 					cell.numFmt = '#,##0';
-					cell.alignment = { horizontal: 'right' };
+					cell.alignment = { vertical: 'middle', horizontal: 'right' };
 				});
+
+				row.height = Math.max(20, descWrap.lineCount * 14.5 + 6);
 
 				// Beri border tipis di setiap cell data B s/d M
 				for (let c = 2; c <= 13; c++) {
